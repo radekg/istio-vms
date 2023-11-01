@@ -23,8 +23,16 @@ spec:
     labels:
       app: "${VM_APP}"
   template:
+    ports:
+      http: 8000
     serviceAccount: "${SERVICE_ACCOUNT}"
     network: "${VM_NETWORK}"
+  probe:
+    periodSeconds: 5
+    initialDelaySeconds: 1
+    httpGet:
+      port: 8000
+      path: /
 EOP
 
 kubectl apply -n "${VM_NAMESPACE}" -f "${TEMP_DIR}/workloadgroup.yaml"
