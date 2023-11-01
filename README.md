@@ -37,6 +37,7 @@ mkdir -p "${DATA_DIR}"
 export TEMP_DIR="${env_base}/.tmp/"
 mkdir -p "${TEMP_DIR}"
 export KUBECONFIG="${DATA_DIR}/.kubeconfig"
+# Settings:
 export RUN_OS=22.04
 export ISTIO_VERSION=${ISTIO_VERSION:-1.19.3}
 export ISTIO_REVISION=$(echo $ISTIO_VERSION | tr '.' '-')
@@ -47,6 +48,16 @@ export DISK_MASTER=4G
 export DISK_WORKER=8G
 export MEM_MASTER=1G
 export MEM_WORKER=8G
+# VM-related configuration:
+export ISTIO_CLUSTER=test
+export VM_APP="external-app"
+export VM_NAMESPACE="vmns"
+export SERVICE_ACCOUNT="vmsa"
+export CLUSTER_NETWORK="kube-network"
+export VM_NETWORK="vm-network"
+
+# However, if there's a run.env file in pwd, use that one:
+[ -f `pwd`"/run.env" ] && source `pwd`"/run.env" && >&2 echo "configured from `pwd`/run.env"
 EOF
 ```
 
@@ -155,21 +166,6 @@ no ready Istio pods in "istio-system"
 This is where I start to follow Istio documentation. First, I install Istio with one change:
 
 - I disable the default ingress because it interferes later on with the _eastwest_ gateway.
-
-Add some config to the environment:
-
-```sh
-cat <<'EOF' >> run.env
-# VM-related configuration:
-export ISTIO_CLUSTER=test
-export VM_APP="external-app"
-export VM_NAMESPACE="vmns"
-export SERVICE_ACCOUNT="vmsa"
-export CLUSTER_NETWORK="kube-network"
-export VM_NETWORK="vm-network"
-EOF
-source run.env
-```
 
 Install Istio:
 
@@ -381,8 +377,16 @@ spec:
     labels:
       app: "${VM_APP}"
   template:
+    ports:
+      http: 8000
     serviceAccount: "${SERVICE_ACCOUNT}"
     network: "${VM_NETWORK}"
+  probe:
+    periodSeconds: 5
+    initialDelaySeconds: 1
+    httpGet:
+      port: 8000
+      path: /
 EOP
 
 kubectl apply -n "${VM_NAMESPACE}" -f "${TEMP_DIR}/workloadgroup.yaml"
@@ -473,7 +477,7 @@ Two binaries have to be replaced with their `arm64` versions:
 For me, the easiest way I could come up with was to:
 
 - Download the `linux/arm64` Istio `proxyv2` Docker image.
-- Creates a container, doesn't start it.
+- Create a container, doesn't start it.
 - Copy the files out of the file system.
 - Remove the container.
 - Reference exported filesystem for required `arm64` binaries.
@@ -613,9 +617,9 @@ Let's break it down:
 - Start the `vm-istio-etxernal-workload` VM.
 - Fetch its IP address, the workload IP.
 - Honor any possible `arm64` binary patches.
-- Transfer the files extracted from _deb_ package to their respective locations on in the VM.
+- Transfer files extracted from the _deb_ package to their respective locations on in the VM.
 - Transfer workload files to the VM into their respective destinations.
-- Execute relevant _deb_ `postinst` script steps.
+- Execute relevant _deb_ `postinst` script steps, if necessary.
 
 ### validate the vm
 
@@ -764,10 +768,171 @@ Hello version: v2, instance: helloworld-v2-9fdc9f56f-tbmk8
 * Connection #0 to host helloworld.sample.svc left intact
 ```
 
-## summary
+## routing mesh traffic to the vm
 
-Istio VM workloads can be automated for automatic onboarding.
+Create a service pointing at the workload group:
 
-## future investigation
+```sh
+cat <<'EOF' > install.route.to-vm.sh
+#!/bin/bash
 
-Reverse DNS resolution: can a pod in the mesh resolve and reach the VM via service-like name?
+set -eu
+
+base="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "${base}/run.env"
+
+kubectl apply -n vmns -f - <<EOP
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: external-app
+  name: external-app
+spec:
+  ports:
+  - name: http
+    port: 8000
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: external-app
+EOP
+EOF
+chmod +x install.route.to-vm.sh && ./install.route.to-vm.sh
+```
+
+Find the workload entry, this exists only when `pilot-agent` is running in the VM.
+
+### workload entry is unhealthy
+
+```sh
+kubectl get workloadentry -n vmns
+```
+
+```
+NAME                                    AGE     ADDRESS
+external-app-192.168.64.64-vm-network   2m33s   192.168.64.64
+```
+
+Check its status, it will be unhealthy:
+
+```sh
+kubectl get workloadentry external-app-192.168.64.64-vm-network -n vmns -o yaml | yq '.status'
+```
+
+```yaml
+conditions:
+  - lastProbeTime: "2023-11-01T21:04:50.343243250Z"
+    lastTransitionTime: "2023-11-01T21:04:50.343245959Z"
+    message: 'Get "http://localhost:8000/": dial tcp 127.0.0.6:0->127.0.0.1:8000:
+      connect: connection refused'
+    status: "False"
+    type: Healthy
+```
+
+### fix it by starting the workload
+
+The reason why it is unhealthy is because the service on the VM isn't running. Start a simple HTTP server to fix this, on the VM `ubuntu@vm-istio-etxernal-workload`:
+
+```sh
+python3 -m http.server
+```
+
+```
+Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/) ...
+127.0.0.6 - - [01/Nov/2023 22:44:25] "GET / HTTP/1.1" 200 -
+127.0.0.6 - - [01/Nov/2023 22:44:30] "GET / HTTP/1.1" 200 -
+127.0.0.6 - - [01/Nov/2023 22:44:35] "GET / HTTP/1.1" 200 -
+...
+```
+
+Almost immediately we see requests arriving. This is the health check. Istio sidecar on the VM logged:
+
+```
+2023-11-01T21:04:50.337302Z	info	healthcheck	failure threshold hit, marking as unhealthy: Get "http://localhost:8000/": dial tcp 127.0.0.6:0->127.0.0.1:8000: connect: connection refused
+2023-11-01T21:32:12.943221Z	info	xdsproxy	connected to upstream XDS server: istiod.istio-system.svc:15012
+2023-11-01T21:44:25.343463Z	info	healthcheck	success threshold hit, marking as healthy
+```
+
+The status of the workload entry has changed:
+
+```sh
+kubectl get workloadentry external-app-192.168.64.64-vm-network -n vmns -o yaml | yq '.status'
+```
+
+```yaml
+conditions:
+  - lastProbeTime: "2023-11-01T21:44:25.339260737Z"
+    lastTransitionTime: "2023-11-01T21:44:25.339264070Z"
+    status: "True"
+    type: Healthy
+```
+
+### verify connectivity with `curl`
+
+Finally, run an actual command to verify:
+
+```sh
+kubectl run vm-response-test -n sample --image=curlimages/curl:8.4.0 --rm -i --tty -- sh
+```
+
+```
+If you don't see a command prompt, try pressing enter.
+~ $
+```
+
+**Pay attention** to the **namespace** used in the last command above. The `curl` pod must be launched in an _Istio-enabled_ namespace, and _sample_ already existed.
+
+Execute the following command in that terminal:
+
+```sh
+curl -v http://external-app.vmns.svc:8000/
+```
+
+```
+*   Trying 10.43.122.27:8000...
+* Connected to external-app.vmns.svc (10.43.122.27) port 8000
+> GET / HTTP/1.1
+> Host: external-app.vmns.svc:8000
+> User-Agent: curl/8.4.0
+> Accept: */*
+>
+< HTTP/1.1 200 OK
+< server: envoy
+< date: Wed, 01 Nov 2023 22:10:20 GMT
+< content-type: text/html; charset=utf-8
+< content-length: 768
+< x-envoy-upstream-service-time: 7
+<
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>Directory listing for /</title>
+</head>
+<body>
+<h1>Directory listing for /</h1>
+<hr>
+<ul>
+<li><a href=".bash_history">.bash_history</a></li>
+<li><a href=".bash_logout">.bash_logout</a></li>
+<li><a href=".bashrc">.bashrc</a></li>
+<li><a href=".cache/">.cache/</a></li>
+<li><a href=".profile">.profile</a></li>
+<li><a href=".ssh/">.ssh/</a></li>
+<li><a href=".sudo_as_admin_successful">.sudo_as_admin_successful</a></li>
+<li><a href="lib/">lib/</a></li>
+<li><a href="usr/">usr/</a></li>
+<li><a href="var/">var/</a></li>
+<li><a href="workload/">workload/</a></li>
+</ul>
+<hr>
+</body>
+</html>
+* Connection #0 to host external-app.vmns.svc left intact
+```
+
+## Summary
+
+Success, a pod in the mesh can communicate to the VM via the service, VM is in the mesh and can communicate back to the mesh. Istio VM workloads are easy way to automate VM-mesh onboarding.
+
