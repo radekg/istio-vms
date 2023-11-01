@@ -445,30 +445,27 @@ So, a workaround is necessary. I have to replicate the work done in the _deb_ pa
 
 ### the _deb_ package
 
-I decompressed it and kept the following:
+I decompressed it:
 
 ```sh
-tree .data/istio-sidecar/
+source run.env
+wget "https://storage.googleapis.com/istio-release/releases/${ISTIO_VERSION}/deb/istio-sidecar.deb" \
+  -O "${DATA_DIR}/istio-sidecar/istio-sidecar.deb"
+tar xf "${DATA_DIR}/istio-sidecar/istio-sidecar.deb" -C "${DATA_DIR}/istio-sidecar/"
+tar xf "${DATA_DIR}/istio-sidecar/data.tar.gz" -C "${DATA_DIR}/istio-sidecar/"
+```
+
+and kept the following:
+
+```sh
+git ls-tree -r HEAD ${DATA_DIR}/istio-sidecar
 ```
 
 ```
-.data/istio-sidecar/
-├── lib
-│   └── systemd
-│       └── system
-│           └── istio.service
-├── usr
-│   └── local
-│       └── bin
-│           └── istio-start.sh
-└── var
-    └── lib
-        └── istio
-            └── envoy
-                ├── envoy_bootstrap_tmpl.json
-                └── sidecar.env
-
-11 directories, 4 files
+100644 blob c18ec3ce73f52fafe05585de91cd4cda2cdf3951	.data/istio-sidecar/lib/systemd/system/istio.service
+100755 blob e022fbb08d4375a66276263b70380230e4702dbe	.data/istio-sidecar/usr/local/bin/istio-start.sh
+100644 blob ab4bbffd39a7462db68312b7049828c7b4c1d673	.data/istio-sidecar/var/lib/istio/envoy/envoy_bootstrap_tmpl.json
+100644 blob fc42e5483094378ca0f0b00cd52f81d1827531cb	.data/istio-sidecar/var/lib/istio/envoy/sidecar.env
 ```
 
 ### `arm64` binaries
