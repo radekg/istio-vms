@@ -1,22 +1,27 @@
-I am going to connect a VM to the Istio mesh running in the Kubernetes cluster. So, I will need:
+I am going to connect a VM to the Istio mesh running in the Kubernetes cluster.
+
+I will need:
 
 - A VM.
 - A Kubernetes cluster.
 - Containers.
 
-This is not a job for KinD because I need a VM. So, it's _Multipass_. I am going to run:
+This is not a job for _KinD_ because I need a VM. So, it's _Multipass_. I am going to run:
 
-- A k3s cluster on Multipass.
-- A VM on Multipass, same network as the k3s cluster.
+- A _k3s_ cluster on _Multipass_.
+- A VM on _Multipass_, same network as the _k3s_ cluster.
 
-After setting up the k3s cluster, I follow the steps from Istio documentation: [Virtual Machine Installation](https://istio.io/latest/docs/setup/install/virtual-machine/).
+After setting up the _k3s_ cluster, I follow the steps from Istio documentation: [Virtual Machine Installation](https://istio.io/latest/docs/setup/install/virtual-machine/).
 
 ## tools
 
-Besides your standard _kubectl_:
+Besides the standard `kubectl`:
 
 - `multipass`: macOS `brew install multipass`, Linux [official instructions](https://multipass.run/docs/installing-on-linux) or follow instructions for your distribution
-- `istioctl`: instructions further in the article
+- `go` for `yq`
+- `yq`: `YQ_VERSION=v4.35.2 go install "github.com/mikefarah/yq/v4@${YQ_VERSION}"` or follow [an official guide](https://github.com/mikefarah/yq#install)
+- `docker` or `podman` if you are on an _arm64-based_ host
+- `istioctl`: instructions [further in the article](#install-istioctl)
 
 ## working directory
 
@@ -62,7 +67,7 @@ export VM_NETWORK="vm-network"
 EOF
 ```
 
-## setting up the k3s cluster
+## setting up the _k3s_ cluster
 
 This program starts the cluster:
 
@@ -103,11 +108,11 @@ EOF
 chmod +x install.k3s.sh && ./install.k3s.sh
 ```
 
-This will start a k3s cluster with one control plane and two workers. Traefik is disabled because we use Istio. Also, the default load balancer, _Klipper_.
+This will start a _k3s_ cluster with one control plane and two workers. _Traefik_ is disabled because we use Istio. Also, the default load balancer is on: _Klipper_.
 
 Please be mindful of the rather high resource requirement. Adjust as you see fit.
 
-**Caution:** this program will remove and recreate your k3s cluster on each run!
+**Caution:** this program will remove and recreate your _k3s_ cluster on each run!
 
 ## setting up the client
 
@@ -166,7 +171,7 @@ no ready Istio pods in "istio-system"
 
 This is where I start to follow Istio documentation. First, I install Istio with one change:
 
-- I disable the default ingress because it interferes later on with the _eastwest_ gateway.
+- I disable the default ingress because it interferes [later on with the _eastwest_ gateway](#why-no-default-ingress-gateway).
 
 Install Istio:
 
@@ -215,7 +220,7 @@ NAME     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                      
 istiod   ClusterIP   10.43.255.139   <none>        15010/TCP,15012/TCP,443/TCP,15014/TCP   39s
 ```
 
-## install eastwest gateway
+## install _eastwest_ gateway
 
 ```sh
 cat <<'EOF' > install.eastwest.gateway.sh
@@ -329,7 +334,7 @@ istio-ingressgateway    LoadBalancer   10.43.217.75    192.168.64.60,192.168.64.
 istio-eastwestgateway   LoadBalancer   10.43.106.169   <pending>                                   15021:31036/TCP,15443:32297/TCP,15012:31263/TCP,15017:32660/TCP   15s
 ```
 
-The eastwest gateway would be hanging in pending state because the default ingress already bound on required host ports. Hence, if you are in this situation, simply:
+The _eastwest_ gateway would be hanging in pending state because the default ingress already bound on required host ports. Hence, if you are in this situation, simply:
 
 ```sh
 kubectl delete service istio-ingressgateway -n istio-system
@@ -419,11 +424,11 @@ output similar to:
 192.168.64.60 istiod.istio-system.svc
 ```
 
-If there are no hosts here, your eastwest gateway is most likely not working correctly. Do you have the default Istio ingress running? I discussed this earlier in this article.
+If there are no hosts here, your _eastwest_ gateway is most likely not working correctly. Do you have the default Istio ingress running? [I discussed this earlier in this article](#preparing-istio-installation).
 
 ## the vm: caveat on `arm64`
 
-For example, M2 mac, like me. Istio documentation mentions a _deb_ file with Istio sidecar packaged as a service. The problem is, Multipass runs an `arm64` build of Ubuntu and the _deb_ package is available only for the `amd64` architecture. Eventually, trying to start Istio on the VM, you'd end up with:
+For example if you are on an M2 mac, like me... Istio documentation instructs to install Istio sidecar on the VM using a _deb_ package from a downloaded file. The problem is, _Multipass_ runs an `arm64` build of Ubuntu and the _deb_ package is available only for the `amd64` architecture. Eventually, trying to start Istio on the VM, you'd end up with:
 
 ```sh
 sudo dpkg -i istio-sidecar.deb
@@ -478,7 +483,7 @@ Two binaries have to be replaced with their `arm64` versions:
 For me, the easiest way I could come up with was to:
 
 - Download the `linux/arm64` Istio `proxyv2` Docker image.
-- Create a container, doesn't start it.
+- Create a container, don't start it.
 - Copy the files out of the file system.
 - Remove the container.
 - Reference exported filesystem for required `arm64` binaries.
@@ -508,10 +513,6 @@ chmod +x install.arm64.binary.patches.sh && CONTAINER_TOOL=podman ./install.arm6
 ```
 
 ## the vm
-
-Fetch dependencies:
-
-- **TODO**: install yq
 
 By far the largest program:
 
