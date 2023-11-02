@@ -727,7 +727,7 @@ curl --silent https://raw.githubusercontent.com/istio/istio/release-1.19/samples
   | kubectl apply -n sample -f -
 ```
 
-**TODO**: explain why and how.
+Again, both example images published by Istio do not exist for the _linux/arm64_ architecture, I build them from my own _Dockerfile_ for _linux/arm64_. [The source code is here](https://github.com/radekg/istio-vms/tree/version-1/istio-examples).
 
 #### hello world pods are running
 
