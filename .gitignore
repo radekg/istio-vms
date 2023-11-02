@@ -1,3 +1,8 @@
 .data/.kubeconfig
+.data/istio-sidecar
+!.data/istio-sidecar/lib/systemd/system/istio.service
+!.data/istio-sidecar/usr/local/bin/istio-start.sh
+!.data/istio-sidecar/var/lib/istio/envoy_bootstrap_tmpl.json
+!.data/istio-sidecar/var/lib/istio/sidecar.env
 .data/workload-files
 .tmp/
