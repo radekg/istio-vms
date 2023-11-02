@@ -937,7 +937,169 @@ curl -v http://external-app.vmns.svc:8000/
 * Connection #0 to host external-app.vmns.svc left intact
 ```
 
+## enable strict tls
+
+```sh
+cat <<'EOF' > install.strict.tls.sh
+#!/bin/bash
+
+set -eu
+
+base="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "${base}/run.env"
+
+kubectl apply -f - <<EOP
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT
+EOP
+EOF
+chmod +x install.strict.tls.sh && ./install.strict.tls.sh
+```
+
+## network policies
+
+### caveat: cannot select a workload entry in a network policy
+
+Because a network policy selects pods using `.spec.podSelector`, and we have no pods, we have a workload entry:
+
+
+```sh
+kubectl apply -n vmns -f - <<EOF
+---
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: deny-all
+spec:
+  podSelector:
+    matchLabels:
+      app: external-app
+  ingress: []
+EOF
+```
+
+```sh
+kubectl run vm-response-test -n sample --image=curlimages/curl:8.4.0 --rm -i --tty -- sh
+```
+
+in that shell:
+
+```sh
+curl -v http://external-app.vmns.svc:8000/
+```
+
+```
+*   Trying 10.43.122.27:8000...
+* Connected to external-app.vmns.svc (10.43.122.27) port 8000
+> GET / HTTP/1.1
+> Host: external-app.vmns.svc:8000
+> User-Agent: curl/8.4.0
+> Accept: */*
+>
+< HTTP/1.1 200 OK
+< server: envoy
+...
+```
+
+**Cosider future work**: is this working when using Istio CNI?
+
+### guarding the vm from the source of traffic namespace
+
+```sh
+kubectl apply -n sample -f - <<EOF
+---
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: deny-egress-tovmns
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchExpressions:
+        - key: namespace
+          operator: NotIn
+          values: ["vmns"]
+EOF
+```
+
+```sh
+kubectl run vm-response-test -n sample --image=curlimages/curl:8.4.0 --rm -i --tty -- sh
+```
+
+in that shell:
+
+```sh
+curl http://external-app.vmns.svc:8000/
+```
+
+```
+upstream connect error or disconnect/reset before headers. retried and the latest reset reason: remote connection failure, transport failure reason: delayed connect error: 111~ $ ^C
+~ $ exit
+Session ended, resume using 'kubectl attach vm-response-test -c vm-response-test -i -t' command when the pod is running
+pod "vm-response-test" deleted
+```
+
+```sh
+kubectl delete networkpolicy deny-egress-tovmns -n sample
+```
+
+```sh
+kubectl run vm-response-test -n sample --image=curlimages/curl:8.4.0 --rm -i --tty -- sh
+```
+
+in that shell:
+
+```sh
+curl http://external-app.vmns.svc:8000/
+```
+
+```
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>Directory listing for /</title>
+</head>
+<body>
+<h1>Directory listing for /</h1>
+<hr>
+<ul>
+<li><a href=".bash_history">.bash_history</a></li>
+<li><a href=".bash_logout">.bash_logout</a></li>
+<li><a href=".bashrc">.bashrc</a></li>
+<li><a href=".cache/">.cache/</a></li>
+<li><a href=".profile">.profile</a></li>
+<li><a href=".ssh/">.ssh/</a></li>
+<li><a href=".sudo_as_admin_successful">.sudo_as_admin_successful</a></li>
+<li><a href="lib/">lib/</a></li>
+<li><a href="usr/">usr/</a></li>
+<li><a href="var/">var/</a></li>
+<li><a href="workload/">workload/</a></li>
+</ul>
+<hr>
+</body>
+</html>
+```
+
+### network boundary for network policies
+
+Current situation:
+
+- Egress from source to the VM can be blocked only on a namespace level.
+- On the VM side, network policies aren't capable selecting workload entries. These only select pods using `.spec.podSelector`.
+
+The natural network boundary is the namespace and explicit deny of egress to the namespace with the VM.
+
 ## Summary
 
 Success, a pod in the mesh can communicate to the VM via the service, VM is in the mesh and can communicate back to the mesh. Istio VM workloads are easy way to automate VM-mesh onboarding.
-
