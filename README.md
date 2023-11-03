@@ -130,7 +130,6 @@ multipass exec k3s-master sudo cat /etc/rancher/k3s/k3s.yaml > "${KUBECONFIG}"
 sed -i '' "s/127.0.0.1/${MASTER_IP}/" "${KUBECONFIG}"
 chmod 600 "${KUBECONFIG}"
 EOF
-
 chmod +x install.k3s.sh && ./install.k3s.sh
 ```
 
@@ -403,7 +402,7 @@ set -eu
 base="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "${base}/run.env"
 
-WORKLOAD_IP=$(multipass info vm-istio-etxernal-workload --format yaml | yq '."vm-istio-etxernal-workload"[] | select(.state == "Running") | .ipv4[0]' -r)
+WORKLOAD_IP=$(multipass info "${WORKLOAD_VM_NAME}" --format yaml | yq '.'${WORKLOAD_VM_NAME}'[] | select(.state == "Running") | .ipv4[0]' -r)
 echo "Workload IP address is: ${WORKLOAD_IP}"
 
 set +e; kubectl create namespace "${VM_NAMESPACE}"; set -e
@@ -585,13 +584,13 @@ if [ "${recreate}" == "true" ]; then
 fi
 
 set +e; multipass launch -c 2 -m 1G -d 4G -n "${WORKLOAD_VM_NAME}" "${RUN_OS}"; set -e
-WORKLOAD_IP=$(multipass info "${WORKLOAD_VM_NAME}" --format yaml | yq '.""${WORKLOAD_VM_NAME}""[] | select(.state == "Running") | .ipv4[0]' -r)
+WORKLOAD_IP=$(multipass info "${WORKLOAD_VM_NAME}" --format yaml | yq '.'${WORKLOAD_VM_NAME}'[] | select(.state == "Running") | .ipv4[0]' -r)
 echo "Workload IP address is: ${WORKLOAD_IP}"
 
 # From the istio/proxyv2 image, copy arm64 binaries as istio-sidecar.deb is amd54 only:
 arm64_patch_dir="${base}/.tmp/istio-proxy-${ISTIO_VERSION}-arm64"
 if [ -f "${arm64_patch_dir}/usr/local/bin/envoy" ]; then
-  echo >&2 "Deploying arm64 binaries..."
+  echo >&2 "Deploying with arm64 binaries..."
   multipass transfer --parents "${arm64_patch_dir}/usr/local/bin/envoy" "${WORKLOAD_VM_NAME}":./usr/local/bin/envoy
   multipass transfer --parents "${arm64_patch_dir}/usr/local/bin/pilot-agent" "${WORKLOAD_VM_NAME}":./usr/local/bin/pilot-agent
 else
@@ -637,7 +636,7 @@ cat > ${base}/.data/workload-files/all-hosts <<EOP
 # b.) change or remove the value of 'manage_etc_hosts' in
 #     /etc/cloud/cloud.cfg or cloud-config from user-data
 #
-127.0.1.1 ${WORKLOAD_VM_NAME}
+127.0.1.1 ${WORKLOAD_VM_NAME} ${WORKLOAD_VM_NAME}
 127.0.0.1 localhost
 
 # The following lines are desirable for IPv6 capable hosts
@@ -883,8 +882,7 @@ kubectl get workloadentry external-app-192.168.64.64-vm-network -n vmns -o yaml 
 conditions:
   - lastProbeTime: "2023-11-01T21:04:50.343243250Z"
     lastTransitionTime: "2023-11-01T21:04:50.343245959Z"
-    message: 'Get "http://localhost:8000/": dial tcp 127.0.0.6:0->127.0.0.1:8000:
-      connect: connection refused'
+    message: 'Get "http://localhost:8000/": dial tcp 127.0.0.6:0->127.0.0.1:8000: connect: connection refused'
     status: "False"
     type: Healthy
 ```
