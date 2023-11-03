@@ -17,11 +17,11 @@ After setting up the _k3s_ cluster, I follow the steps from Istio documentation:
 
 Besides the standard `kubectl`:
 
-- `multipass`: macOS `brew install multipass`, Linux [official instructions](https://multipass.run/docs/installing-on-linux) or follow instructions for your distribution
-- `go` for `yq`
-- `yq`: `YQ_VERSION=v4.35.2 go install "github.com/mikefarah/yq/v4@${YQ_VERSION}"` or follow [an official guide](https://github.com/mikefarah/yq#install)
-- `docker` or `podman` if you are on an _arm64-based_ host
-- `istioctl`: instructions [further in the article](#install-istioctl)
+- `multipass`: macOS `brew install multipass`, Linux [official instructions](https://multipass.run/docs/installing-on-linux) or follow instructions for your distribution,
+- `git`: to fetch the additional data,
+- `yq`: follow [an official guide](https://github.com/mikefarah/yq#install),
+- `docker` or `podman` if you are on an _arm64-based_ host,
+- `istioctl`: instructions [further in the article](#install-istioctl).
 
 ## working directory
 
@@ -29,7 +29,10 @@ Remain in this directory all the time:
 
 ```sh
 mkdir -p ~/.project && cd ~/.project
+git clone https://github.com/radekg/istio-vms.git .
 ```
+
+The _git_ command brings all the additional data files required by various steps.
 
 ## configure the environment
 
@@ -55,6 +58,7 @@ export DISK_WORKER=8G
 export MEM_MASTER=1G
 export MEM_WORKER=8G
 # VM-related configuration:
+export WORKLOAD_VM_NAME=vm-istio-external-workload
 export ISTIO_CLUSTER=test
 export VM_APP="external-app"
 export VM_NAMESPACE="vmns"
@@ -63,7 +67,10 @@ export CLUSTER_NETWORK="kube-network"
 export VM_NETWORK="vm-network"
 
 # However, if there's a run.env file in pwd, use that one:
-[ -f `pwd`"/run.env" ] && source `pwd`"/run.env" && >&2 echo "configured from `pwd`/run.env"
+pwd=`pwd`
+if [ "${pwd}" != "${env_base}" ]; then
+  [ -f "${pwd}/run.env" ] && source "${pwd}/run.env" && >&2 echo "configured from ${pwd}/run.env"
+fi
 EOF
 ```
 
@@ -75,8 +82,27 @@ This program starts the cluster:
 cat <<'EOF' > install.k3s.sh
 #!/bin/bash
 
-multipass delete k3s-master k3s-worker-1 k3s-worker-2
-multipass purge
+delete="false"
+recreate="false"
+
+for var in "$@"
+do
+  [ "${var}" == "--delete" ] && delete="true"
+  [ "${var}" == "--recreate" ] && recreate="true"
+done
+
+if [ "${delete}" == "true" ]; then
+  echo >&2 "Deleting the k3s cluster..."
+  multipass delete k3s-master k3s-worker-1 k3s-worker-2
+  multipass purge
+  exit 0
+fi
+
+if [ "${recreate}" == "true" ]; then
+  echo >&2 "Recreating the k3s cluster..."
+  multipass delete k3s-master k3s-worker-1 k3s-worker-2
+  multipass purge
+fi
 
 set -eu
 
@@ -112,7 +138,17 @@ This will start a _k3s_ cluster with one control plane and two workers. _Traefik
 
 Please be mindful of the rather high resource requirement. Adjust as you see fit.
 
-**Caution:** this program will remove and recreate your _k3s_ cluster on each run!
+The cluster can be deleted with:
+
+```sh
+./install.k3s.sh --delete
+```
+
+and recreated (removed and created again) with:
+
+```sh
+./install.k3s.sh --recreate
+```
 
 ## setting up the client
 
@@ -125,19 +161,21 @@ source run.env
 ## verify the cluster
 
 ```sh
-kubectl get nodes -o wide
+kubectl get nodes
 ```
 
 Something along the lines of:
 
 ```
-NAME           STATUS   ROLES                  AGE     VERSION        INTERNAL-IP     EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION      CONTAINER-RUNTIME
-k3s-master     Ready    control-plane,master   6m41s   v1.27.6+k3s1   192.168.64.57   <none>        Ubuntu 22.04.3 LTS   5.15.0-87-generic   containerd://1.7.6-k3s1.27
-k3s-worker-2   Ready    <none>                 5m44s   v1.27.6+k3s1   192.168.64.59   <none>        Ubuntu 22.04.3 LTS   5.15.0-87-generic   containerd://1.7.6-k3s1.27
-k3s-worker-1   Ready    <none>                 5m52s   v1.27.6+k3s1   192.168.64.58   <none>        Ubuntu 22.04.3 LTS   5.15.0-87-generic   containerd://1.7.6-k3s1.27
+NAME           STATUS   ROLES                  AGE     VERSION
+k3s-master     Ready    control-plane,master   10m     v1.27.7+k3s1
+k3s-worker-1   Ready    <none>                 9m26s   v1.27.7+k3s1
+k3s-worker-2   Ready    <none>                 9m18s   v1.27.7+k3s1
 ```
 
 ## install istioctl
+
+- `ISTIO_ARCH`: one of `< osx-arm64`, `osx-amd64`, `linux-armv7`, `linux-arm64`, `linux-amd64 >`
 
 ```sh
 cat <<'EOF' > install.istioctl.sh
@@ -146,7 +184,7 @@ local_bin="${HOME}/.local/test-istio-vm-multipass/bin"
 mkdir -p "${local_bin}/tmp/"
 export PATH="${local_bin}:/usr/local/bin:${PATH}"
 export ISTIO_VERSION=${ISTIO_VERSION:-1.19.3}
-export ISTIO_ARCH=${ISTIO_ARCH:-osx-arm64} # linux-amd64
+export ISTIO_ARCH=${ISTIO_ARCH:-osx-arm64}
 wget "https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/istioctl-${ISTIO_VERSION}-${ISTIO_ARCH}.tar.gz" -O "${local_bin}/tmp/istioctl-${ISTIO_VERSION}-${ISTIO_ARCH}.tar.gz"
 tar xvzf "${local_bin}/tmp/istioctl-${ISTIO_VERSION}-${ISTIO_ARCH}.tar.gz" -C "${local_bin}/tmp"
 mv -v "${local_bin}/tmp/istioctl" "${local_bin}/istioctl-${ISTIO_VERSION}"
@@ -522,52 +560,75 @@ set -eu
 base="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "${base}/run.env"
 
-set +e; multipass launch -c 2 -m 1G -d 4G -n vm-istio-etxernal-workload "${RUN_OS}"; set -e
-WORKLOAD_IP=$(multipass info vm-istio-etxernal-workload --format yaml | yq '."vm-istio-etxernal-workload"[] | select(.state == "Running") | .ipv4[0]' -r)
+delete="false"
+recreate="false"
+
+for var in "$@"
+do
+  [ "${var}" == "--delete" ] && delete="true"
+  [ "${var}" == "--recreate" ] && recreate="true"
+done
+
+if [ "${delete}" == "true" ]; then
+  echo >&2 "Deleting the workload machine..."
+  rm -rfv "${DATA_DIR}/workload-files"
+  multipass delete "${WORKLOAD_VM_NAME}"
+  multipass purge
+  exit 0
+fi
+
+if [ "${recreate}" == "true" ]; then
+  echo >&2 "Recreating the workload machine..."
+  rm -rfv "${DATA_DIR}/workload-files"
+  multipass delete "${WORKLOAD_VM_NAME}"
+  multipass purge
+fi
+
+set +e; multipass launch -c 2 -m 1G -d 4G -n "${WORKLOAD_VM_NAME}" "${RUN_OS}"; set -e
+WORKLOAD_IP=$(multipass info "${WORKLOAD_VM_NAME}" --format yaml | yq '.""${WORKLOAD_VM_NAME}""[] | select(.state == "Running") | .ipv4[0]' -r)
 echo "Workload IP address is: ${WORKLOAD_IP}"
 
 # From the istio/proxyv2 image, copy arm64 binaries as istio-sidecar.deb is amd54 only:
 arm64_patch_dir="${base}/.tmp/istio-proxy-${ISTIO_VERSION}-arm64"
 if [ -f "${arm64_patch_dir}/usr/local/bin/envoy" ]; then
-  multipass transfer --parents "${arm64_patch_dir}/usr/local/bin/envoy" vm-istio-etxernal-workload:./usr/local/bin/envoy
-  multipass transfer --parents "${arm64_patch_dir}/usr/local/bin/pilot-agent" vm-istio-etxernal-workload:./usr/local/bin/pilot-agent
+  echo >&2 "Deploying arm64 binaries..."
+  multipass transfer --parents "${arm64_patch_dir}/usr/local/bin/envoy" "${WORKLOAD_VM_NAME}":./usr/local/bin/envoy
+  multipass transfer --parents "${arm64_patch_dir}/usr/local/bin/pilot-agent" "${WORKLOAD_VM_NAME}":./usr/local/bin/pilot-agent
+else
+  echo >&2 "Deploying without arm64 binaries."
 fi
 
 # istio-sidecar.deb:
-multipass transfer --parents "${DATA_DIR}/istio-sidecar/usr/local/bin/istio-start.sh" vm-istio-etxernal-workload:./usr/local/bin/istio-start.sh
-multipass transfer --parents "${DATA_DIR}/istio-sidecar/lib/systemd/system/istio.service" vm-istio-etxernal-workload:./lib/systemd/system/istio.service 
-multipass transfer --parents "${DATA_DIR}/istio-sidecar/var/lib/istio/envoy/envoy_bootstrap_tmpl.json" vm-istio-etxernal-workload:./var/lib/istio/envoy/envoy_bootstrap_tmpl.json
-multipass transfer --parents "${DATA_DIR}/istio-sidecar/var/lib/istio/envoy/sidecar.env" vm-istio-etxernal-workload:./var/lib/istio/envoy/sidecar.env
+multipass transfer --parents "${DATA_DIR}/istio-sidecar/usr/local/bin/istio-start.sh" "${WORKLOAD_VM_NAME}":./usr/local/bin/istio-start.sh
+multipass transfer --parents "${DATA_DIR}/istio-sidecar/lib/systemd/system/istio.service" "${WORKLOAD_VM_NAME}":./lib/systemd/system/istio.service 
+multipass transfer --parents "${DATA_DIR}/istio-sidecar/var/lib/istio/envoy/envoy_bootstrap_tmpl.json" "${WORKLOAD_VM_NAME}":./var/lib/istio/envoy/envoy_bootstrap_tmpl.json
+multipass transfer --parents "${DATA_DIR}/istio-sidecar/var/lib/istio/envoy/sidecar.env" "${WORKLOAD_VM_NAME}":./var/lib/istio/envoy/sidecar.env
 
 # Configure the istio-sidecar.deb-like environment:
-multipass exec vm-istio-etxernal-workload -- sudo mkdir -p /etc/certs
-multipass exec vm-istio-etxernal-workload -- sudo mkdir -p /etc/istio/config
-multipass exec vm-istio-etxernal-workload -- sudo mkdir -p /var/lib/istio/config
-multipass exec vm-istio-etxernal-workload -- sudo mkdir -p /var/lib/istio/envoy
-multipass exec vm-istio-etxernal-workload -- sudo mkdir -p /var/lib/istio/proxy
-multipass exec vm-istio-etxernal-workload -- sudo mkdir -p /var/log/istio
-multipass exec vm-istio-etxernal-workload -- sudo touch /var/lib/istio/config/mesh
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo mkdir -p /etc/certs
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo mkdir -p /etc/istio/config
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo mkdir -p /var/lib/istio/config
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo mkdir -p /var/lib/istio/envoy
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo mkdir -p /var/lib/istio/proxy
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo mkdir -p /var/log/istio
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo touch /var/lib/istio/config/mesh
 if [ -f "${arm64_patch_dir}/usr/local/bin/envoy" ]; then
-  multipass exec vm-istio-etxernal-workload -- sudo bash -c 'mv -v usr/local/bin/* /usr/local/bin/'
-  multipass exec vm-istio-etxernal-workload -- sudo bash -c 'mv -v lib/systemd/system/istio.service /lib/systemd/system/istio.service'
-  multipass exec vm-istio-etxernal-workload -- sudo bash -c 'mv -v var/lib/istio/envoy/* /var/lib/istio/envoy/'
+  multipass exec "${WORKLOAD_VM_NAME}" -- sudo bash -c 'mv -v usr/local/bin/* /usr/local/bin/'
+  multipass exec "${WORKLOAD_VM_NAME}" -- sudo bash -c 'mv -v lib/systemd/system/istio.service /lib/systemd/system/istio.service'
+  multipass exec "${WORKLOAD_VM_NAME}" -- sudo bash -c 'mv -v var/lib/istio/envoy/* /var/lib/istio/envoy/'
   # From postinst:
-  set +e; multipass exec vm-istio-etxernal-workload -- sudo groupadd --system istio-proxy; set -e
-  set +e; multipass exec vm-istio-etxernal-workload -- sudo useradd --system --gid istio-proxy --home-dir /var/lib/istio istio-proxy; set -e
+  set +e; multipass exec "${WORKLOAD_VM_NAME}" -- sudo groupadd --system istio-proxy; set -e
+  set +e; multipass exec "${WORKLOAD_VM_NAME}" -- sudo useradd --system --gid istio-proxy --home-dir /var/lib/istio istio-proxy; set -e
 else
-  multipass exec vm-istio-etxernal-workload -- sudo bash -c 'curl -LO https://storage.googleapis.com/istio-release/releases/'${ISTIO_VERSION}'/deb/istio-sidecar.deb && sudo dpkg -i istio-sidecar.deb'
+  multipass exec "${WORKLOAD_VM_NAME}" -- sudo bash -c 'curl -LO https://storage.googleapis.com/istio-release/releases/'${ISTIO_VERSION}'/deb/istio-sidecar.deb && sudo dpkg -i istio-sidecar.deb'
 fi
 
 # Deploy workload files:
-multipass transfer --parents "${base}/.data/workload-files/root-cert.pem" vm-istio-etxernal-workload:./workload/root-cert.pem
-multipass transfer --parents "${base}/.data/workload-files/cluster.env" vm-istio-etxernal-workload:./workload/cluster.env
-multipass transfer --parents "${base}/.data/workload-files/istio-token" vm-istio-etxernal-workload:./workload/istio-token
-multipass transfer --parents "${base}/.data/workload-files/mesh.yaml" vm-istio-etxernal-workload:./workload/mesh
+multipass transfer --parents "${base}/.data/workload-files/root-cert.pem" "${WORKLOAD_VM_NAME}":./workload/root-cert.pem
+multipass transfer --parents "${base}/.data/workload-files/cluster.env" "${WORKLOAD_VM_NAME}":./workload/cluster.env
+multipass transfer --parents "${base}/.data/workload-files/istio-token" "${WORKLOAD_VM_NAME}":./workload/istio-token
+multipass transfer --parents "${base}/.data/workload-files/mesh.yaml" "${WORKLOAD_VM_NAME}":./workload/mesh
 
-# Good tip from the Istio in Action book (page 364).
-# --------------------------------------------------
-# Concatenate the contents of the hosts file contents to the systems hosts file:
-# --------------------------------------------------
 cat > ${base}/.data/workload-files/all-hosts <<EOP
 # Your system has configured 'manage_etc_hosts' as True.
 # As a result, if you wish for changes to this file to persist
@@ -576,7 +637,7 @@ cat > ${base}/.data/workload-files/all-hosts <<EOP
 # b.) change or remove the value of 'manage_etc_hosts' in
 #     /etc/cloud/cloud.cfg or cloud-config from user-data
 #
-127.0.1.1 vm-istio-etxernal-workload vm-istio-etxernal-workload
+127.0.1.1 ${WORKLOAD_VM_NAME}
 127.0.0.1 localhost
 
 # The following lines are desirable for IPv6 capable hosts
@@ -587,24 +648,17 @@ ff02::2 ip6-allrouters
 $(cat ${base}/.data/workload-files/hosts)
 EOP
 
-multipass transfer --parents "${base}/.data/workload-files/all-hosts" vm-istio-etxernal-workload:./workload/hosts
-multipass exec vm-istio-etxernal-workload -- sudo bash -c 'mv -v workload/hosts /etc/hosts'
+multipass transfer --parents "${base}/.data/workload-files/all-hosts" "${WORKLOAD_VM_NAME}":./workload/hosts
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo bash -c 'mv -v workload/hosts /etc/hosts'
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo bash -c 'mv -v workload/root-cert.pem /etc/certs/root-cert.pem'
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo bash -c 'mv -v workload/cluster.env /var/lib/istio/envoy/cluster.env'
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo mkdir -p /var/run/secrets/tokens
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo bash -c 'mv -v workload/istio-token /var/run/secrets/tokens/istio-token'
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo bash -c 'mv -v workload/mesh /etc/istio/config/mesh'
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo chmod o+rx /usr/local/bin/{envoy,pilot-agent}
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo chmod 2755 /usr/local/bin/{envoy,pilot-agent}
 
-# Another good tip from the Istio in Action book (page 364).
-# ----------------------------------------------------------
-# Hardcode the hostname of the machine to the hosts file so that the istio-agent doesn’t interfere with its hostname resolution:
-# ----------------------------------------------------------
-multipass exec vm-istio-etxernal-workload -- sudo bash -c 'echo "'${WORKLOAD_IP}' $(hostname)" >> /etc/hosts'
-
-multipass exec vm-istio-etxernal-workload -- sudo bash -c 'mv -v workload/root-cert.pem /etc/certs/root-cert.pem'
-multipass exec vm-istio-etxernal-workload -- sudo bash -c 'mv -v workload/cluster.env /var/lib/istio/envoy/cluster.env'
-multipass exec vm-istio-etxernal-workload -- sudo mkdir -p /var/run/secrets/tokens
-multipass exec vm-istio-etxernal-workload -- sudo bash -c 'mv -v workload/istio-token /var/run/secrets/tokens/istio-token'
-multipass exec vm-istio-etxernal-workload -- sudo bash -c 'mv -v workload/mesh /etc/istio/config/mesh'
-multipass exec vm-istio-etxernal-workload -- sudo chmod o+rx /usr/local/bin/{envoy,pilot-agent}
-multipass exec vm-istio-etxernal-workload -- sudo chmod 2755 /usr/local/bin/{envoy,pilot-agent}
-
-multipass exec vm-istio-etxernal-workload -- sudo chown -R istio-proxy.istio-proxy \
+multipass exec "${WORKLOAD_VM_NAME}" -- sudo chown -R istio-proxy.istio-proxy \
   /etc/certs \
   /etc/istio \
   /var/run/secrets \

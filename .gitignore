@@ -6,3 +6,5 @@
 !.data/istio-sidecar/var/lib/istio/sidecar.env
 .data/workload-files
 .tmp/
+install.arm64.binary.patches.sh
+
