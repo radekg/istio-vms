@@ -831,7 +831,7 @@ Hello version: v2, instance: helloworld-v2-9fdc9f56f-tbmk8
 Create a service pointing at the workload group:
 
 ```sh
-cat <<'EOF' > install.route.to-vm.sh
+cat <<'EOF' > install.route.to.vm.sh
 #!/bin/bash
 
 set -eu
@@ -856,7 +856,7 @@ spec:
     app: external-app
 EOP
 EOF
-chmod +x install.route.to-vm.sh && ./install.route.to-vm.sh
+chmod +x install.route.to.vm.sh && ./install.route.to.vm.sh
 ```
 
 Find the workload entry, this exists only when `pilot-agent` is running in the VM.
