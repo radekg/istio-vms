@@ -6,3 +6,11 @@
 !.data/istio-sidecar/var/lib/istio/sidecar.env
 .data/workload-files
 .tmp/
+install.arm64.binary.patches.sh
+install.eastwest.gateway.sh
+install.istio.sh
+install.k3s.sh
+install.route.to.vm.sh
+install.vm.sh
+install.workload.sh
+run.env
