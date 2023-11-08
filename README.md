@@ -13,6 +13,10 @@ This is not a job for _KinD_ because I need a VM. So, it's _Multipass_. I am goi
 
 After setting up the _k3s_ cluster, I follow the steps from Istio documentation: [Virtual Machine Installation](https://istio.io/latest/docs/setup/install/virtual-machine/).
 
+## how to use this document
+
+Either follow for the hard way, or consult `./bin/reference.sh` for a more condensed walk-through.
+
 ## tools
 
 Besides the standard `kubectl`:
@@ -548,16 +552,13 @@ chmod +x install.arm64.binary.patches.sh && CONTAINER_TOOL=podman ./install.arm6
 
 ## the vm
 
+**TODO:**: this should be using `cloud-init`, really...
+
 By far the largest program:
 
 ```sh
 cat <<'EOF' > install.vm.sh
 #!/bin/bash
-
-set -eu
-
-base="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-source "${base}/run.env"
 
 delete="false"
 recreate="false"
@@ -582,6 +583,11 @@ if [ "${recreate}" == "true" ]; then
   multipass delete "${WORKLOAD_VM_NAME}"
   multipass purge
 fi
+
+set -eu
+
+base="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "${base}/run.env"
 
 set +e; multipass launch -c 2 -m 1G -d 4G -n "${WORKLOAD_VM_NAME}" "${RUN_OS}"; set -e
 WORKLOAD_IP=$(multipass info "${WORKLOAD_VM_NAME}" --format yaml | yq '.'${WORKLOAD_VM_NAME}'[] | select(.state == "Running") | .ipv4[0]' -r)
@@ -669,6 +675,8 @@ multipass exec "${WORKLOAD_VM_NAME}" -- sudo chown -R istio-proxy.istio-proxy \
 EOF
 chmod +x install.vm.sh && ./install.vm.sh
 ```
+
+### the vm: tl;dr
 
 Let's break it down:
 
