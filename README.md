@@ -553,14 +553,6 @@ curl -v http://external-app.vmns.svc:8000/
 ## enable strict tls
 
 ```sh
-cat <<'EOF' > install.strict.tls.sh
-#!/bin/bash
-
-set -eu
-
-base="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-source "${base}/run.env"
-
 kubectl apply -f - <<EOP
 apiVersion: security.istio.io/v1beta1
 kind: PeerAuthentication
@@ -571,8 +563,6 @@ spec:
   mtls:
     mode: STRICT
 EOP
-EOF
-chmod +x install.strict.tls.sh && ./install.strict.tls.sh
 ```
 
 ## network policies
