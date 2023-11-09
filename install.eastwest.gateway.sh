@@ -8,7 +8,7 @@ wget -O "${TEMP_DIR}/gen-eastwest-gateway.sh" https://raw.githubusercontent.com/
 sed -i '' 's!port: '${DEFAULT_PORT_STATUS}'!port: '${EWG_PORT_STATUS}'!' "${TEMP_DIR}/gen-eastwest-gateway.sh"
 sed -i '' 's!port: '${DEFAULT_PORT_TLS_ISTIOD}'!port: '${EWG_PORT_TLS_ISTIOD}'!' "${TEMP_DIR}/gen-eastwest-gateway.sh"
 sed -i '' 's!port: '${DEFAULT_PORT_TLS_WEBHOOK}'!port: '${EWG_PORT_TLS_WEBHOOK}'!' "${TEMP_DIR}/gen-eastwest-gateway.sh"
-chmod +x "${TEMP_DIR}/en-eastwest-gateway.sh"
+chmod +x "${TEMP_DIR}/gen-eastwest-gateway.sh"
 
 "${TEMP_DIR}/gen-eastwest-gateway.sh" \
   --mesh mesh1 --cluster "${ISTIO_CLUSTER}" --network "${CLUSTER_NETWORK}" | istioctl install -y -f -
