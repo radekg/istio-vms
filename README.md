@@ -91,10 +91,13 @@ k3s-worker-2   Ready    <none>                 9m18s   v1.27.7+k3s1
 
 ## install istioctl
 
-- `ISTIO_ARCH`: one of `< osx-arm64`, `osx-amd64`, `linux-armv7`, `linux-arm64`, `linux-amd64 >`
+This program downloads _istioctl_ for _ISTIO\_VERSION_ and _ISTIO\_ARCH_, and places it in the _.bin/_ directory.
+
+- `ISTIO_VERSION`: Istio version, default `1.19.3`
+- `ISTIO_ARCH`: one of `< osx-arm64`, `osx-amd64`, `linux-armv7`, `linux-arm64`, `linux-amd64 >`, default `osx-arm64`
 
 ```sh
-./install.istioctl.sh && which istioctl
+./install.istioctl.sh
 ```
 
 Verify:
@@ -108,7 +111,15 @@ no ready Istio pods in "istio-system"
 1.19.3
 ```
 
-## preparing Istio installation
+```sh
+which istioctl | sed 's!'$(pwd)'/!!'
+```
+
+```
+.bin//istioctl
+```
+
+## istio installation
 
 Install Istio:
 
@@ -127,11 +138,35 @@ NAME     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                      
 istiod   ClusterIP   10.43.255.139   <none>        15010/TCP,15012/TCP,443/TCP,15014/TCP   39s
 ```
 
-## install _eastwest_ gateway
+## _eastwest_ gateway
+
+This program installs the _eastwest_ gateway. This program depends on _DEFAULT\_PORT\_*_ and _EWG\_PORT\_*_ environment variables.
 
 ```sh
 ./install.eastwest.gateway.sh
 ```
+
+The outcome should be similar to this:
+
+```
+kubectl get services -n istio-system -w
+NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP                                 PORT(S)                                                           AGE
+istiod                  ClusterIP      10.43.255.139   <none>                                      15010/TCP,15012/TCP,443/TCP,15014/TCP                             17m
+istio-ingressgateway    LoadBalancer   10.43.217.75    192.168.64.60,192.168.64.61,192.168.64.62   15021:31941/TCP,80:30729/TCP,443:32187/TCP                        11m
+istio-eastwestgateway   LoadBalancer   10.43.106.169   192.168.64.60,192.168.64.61,192.168.64.62   15022:31036/TCP,15443:32297/TCP,15013:31263/TCP,15018:32660/TCP   15s
+```
+
+If your _eastwest_ gateway remains in the _pending_ state, makes sure that a _DEFAULT\_PORT_ is not equal to the corresponding _EWG\_PORT_.
+
+```
+kubectl get services -n istio-system -w
+NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP                                 PORT(S)                                                           AGE
+istiod                  ClusterIP      10.43.255.139   <none>                                      15010/TCP,15012/TCP,443/TCP,15014/TCP                             17m
+istio-ingressgateway    LoadBalancer   10.43.217.75    192.168.64.60,192.168.64.61,192.168.64.62   15021:31941/TCP,80:30729/TCP,443:32187/TCP                        11m
+istio-eastwestgateway   LoadBalancer   10.43.106.169   <pending>                                   15021:31036/TCP,15443:32297/TCP,15013:31263/TCP,15018:32660/TCP   15s
+```
+
+In the example above, the problem is _15021:31036/TCP_: _15021_ is already used by the default ingress gateway.
 
 ## create the vm
 
@@ -141,9 +176,11 @@ Before a workload group can be created, we need to have the VM because, in this 
 ./install.vm.create.sh
 ```
 
+This command supports _--delete_ and _--recreate_ flags. Only the _multipass_ VM is manipulated. Other files remain on disk.
+
 ## the workload group
 
-It's time to turn the attention to the VM. Start by creating a workload:
+This program finds the VM IP address and uses it to create a _WorkloadGroup_ Kubernetes resource. When ready, the program downloads all files required by the VM to join the mesh. Files are stored in _.data/workload-files_.
 
 ```sh
 ./install.workload.sh
@@ -161,7 +198,7 @@ output similar to:
 192.168.64.60 istiod.istio-system.svc
 ```
 
-If there are no hosts here, your _eastwest_ gateway is most likely not working correctly. Do you have the default Istio ingress running? [I discussed this earlier in this article](#preparing-istio-installation).
+If there are no hosts here, your _eastwest_ gateway is most likely not working correctly.
 
 ## the vm: caveat on `arm64`
 
@@ -223,32 +260,20 @@ For me, the easiest way I could come up with was to:
 - Reference exported filesystem for required `arm64` binaries.
 
 ```sh
-cat <<'EOF' > install.arm64.binary.patches.sh
-#!/bin/bash
-
-set -eu
-
-base="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-source "${base}/run.env"
-
-arm64_patch_dir="${TEMP_DIR}/istio-proxy-${ISTIO_VERSION}-arm64"
-rm -rf "${arm64_patch_dir}" && mkdir -p "${arm64_patch_dir}" && cd "${arm64_patch_dir}"
-${CONTAINER_TOOL} create --name="istio-export-${ISTIO_REVISION}" "docker.io/istio/proxyv2:${ISTIO_VERSION}" --platform linux/arm64
-${CONTAINER_TOOL} export istio-export-1-19-3 | tar x
-${CONTAINER_TOOL} rm "istio-export-${ISTIO_REVISION}"
-EOF
-chmod +x install.arm64.binary.patches.sh && ./install.arm64.binary.patches.sh
+./install.arm64.binary.patches.sh
 ```
 
 You can run this with `podman` by executing:
 
 ```sh
-chmod +x install.arm64.binary.patches.sh && CONTAINER_TOOL=podman ./install.arm64.binary.patches.sh
+CONTAINER_TOOL=podman ./install.arm64.binary.patches.sh
 ```
 
 ## bootstrap the vm
 
 **TODO:**: this should be using `cloud-init`, really...
+
+This program deploys all the files required by the VM to join the mesh, moves them to the right places, and configures to VM to handle the Istio sidecar.
 
 ```sh
 ./install.vm.bootstrap.sh
@@ -553,12 +578,11 @@ curl -v http://external-app.vmns.svc:8000/
 ## enable strict tls
 
 ```sh
-kubectl apply -f - <<EOP
+kubectl apply -n istio-system -f - <<EOP
 apiVersion: security.istio.io/v1beta1
 kind: PeerAuthentication
 metadata:
   name: default
-  namespace: istio-system
 spec:
   mtls:
     mode: STRICT
@@ -574,7 +598,6 @@ Because a network policy selects pods using `.spec.podSelector`, and we have no 
 
 ```sh
 kubectl apply -n vmns -f - <<EOF
----
 kind: NetworkPolicy
 apiVersion: networking.k8s.io/v1
 metadata:

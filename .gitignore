@@ -1,3 +1,4 @@
+.bin/
 .data/.kubeconfig
 .data/istio-sidecar
 !.data/istio-sidecar/lib/systemd/system/istio.service
