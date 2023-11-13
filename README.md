@@ -139,7 +139,7 @@ istiod-1-19-3   ClusterIP   10.43.255.139   <none>        15010/TCP,15012/TCP,44
 ```
 
 ```sh
-istioctl tag list
+istioctl tag list --istioNamespace="${ISTIO_NAMESPACE}"
 ```
 
 ```
@@ -157,18 +157,24 @@ This program installs the _eastwest_ gateway. This program depends on _DEFAULT\_
 
 The outcome should be similar to this:
 
+```sh
+kubectl get services -n "${ISTIO_NAMESPACE}" -w
 ```
-kubectl get services -n istio-system -w
+
+```
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP                                 PORT(S)                                                           AGE
 istiod                  ClusterIP      10.43.255.139   <none>                                      15010/TCP,15012/TCP,443/TCP,15014/TCP                             17m
 istio-ingressgateway    LoadBalancer   10.43.217.75    192.168.64.60,192.168.64.61,192.168.64.62   15021:31941/TCP,80:30729/TCP,443:32187/TCP                        11m
 istio-eastwestgateway   LoadBalancer   10.43.106.169   192.168.64.60,192.168.64.61,192.168.64.62   15022:31036/TCP,15443:32297/TCP,15013:31263/TCP,15018:32660/TCP   15s
 ```
 
-If your _eastwest_ gateway remains in the _pending_ state, makes sure that a _DEFAULT\_PORT_ is not equal to the corresponding _EWG\_PORT_.
+If your _eastwest_ gateway remains in the _pending_ state, ensure that a _DEFAULT\_PORT_ is not equal to the corresponding _EWG\_PORT_.
+
+```sh
+kubectl get services -n "${ISTIO_NAMESPACE}" -w
+```
 
 ```
-kubectl get services -n istio-system -w
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP                                 PORT(S)                                                           AGE
 istiod                  ClusterIP      10.43.255.139   <none>                                      15010/TCP,15012/TCP,443/TCP,15014/TCP                             17m
 istio-ingressgateway    LoadBalancer   10.43.217.75    192.168.64.60,192.168.64.61,192.168.64.62   15021:31941/TCP,80:30729/TCP,443:32187/TCP                        11m
