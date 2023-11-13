@@ -1,5 +1,14 @@
 #!/bin/bash
 
+no_fix_ca="false"
+no_fix_pilot="false"
+
+for var in "$@"
+do
+  [ "${var}" == "--no-fix-ca" ] && no_fix_ca="true"
+  [ "${var}" == "--no-fix-pilot" ] && no_fix_pilot="true"
+done
+
 set -eu
 
 base="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -45,6 +54,16 @@ while [ ! -f "${DATA_DIR}/workload-files/root-cert.pem" ]; do
     -o "${DATA_DIR}/workload-files" \
     --clusterID "${ISTIO_CLUSTER}" \
     --externalIP "${WORKLOAD_IP}" \
+    --revision "${ISTIO_REVISION}" \
+    --istioNamespace "${ISTIO_NAMESPACE}" \
     --autoregister
   sleep 5
 done
+
+if [ "${no_fix_ca}" == "false" ]; then
+  echo "CA_ADDR=istiod-'${ISTIO_REVISION}.${ISTIO_NAMESPACE}.svc:${EWG_PORT_TLS_ISTIOD}'" >> "${DATA_DIR}/workload-files/cluster.env"
+fi
+
+if [ "${no_fix_pilot}" == "false" ]; then
+  echo "PILOT_ADDRESS='istiod-${ISTIO_REVISION}.${ISTIO_NAMESPACE}.svc:${EWG_PORT_TLS_ISTIOD}'" >> "${DATA_DIR}/workload-files/cluster.env"
+fi

@@ -11,14 +11,18 @@ sed -i '' 's!port: '${DEFAULT_PORT_TLS_WEBHOOK}'!port: '${EWG_PORT_TLS_WEBHOOK}'
 chmod +x "${TEMP_DIR}/gen-eastwest-gateway.sh"
 
 "${TEMP_DIR}/gen-eastwest-gateway.sh" \
-  --mesh mesh1 --cluster "${ISTIO_CLUSTER}" --network "${CLUSTER_NETWORK}" | istioctl install -y -f -
+  --mesh "${ISTIO_MESH_ID}" \
+  --cluster "${ISTIO_CLUSTER}" \
+  --network "${CLUSTER_NETWORK}" \
+  --revision "${ISTIO_REVISION}" | istioctl install --istioNamespace="${ISTIO_NAMESPACE}" -y -f -
 
-kubectl apply -n istio-system -f - <<EOP
+kubectl apply -f - <<EOP
 # Source: https://raw.githubusercontent.com/istio/istio/master/samples/multicluster/expose-istiod.yaml
 apiVersion: networking.istio.io/v1alpha3
 kind: Gateway
 metadata:
   name: istiod-gateway
+  namespace: ${ISTIO_NAMESPACE}
 spec:
   selector:
     istio: eastwestgateway
@@ -44,6 +48,7 @@ apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
 metadata:
   name: istiod-vs
+  namespace: ${ISTIO_NAMESPACE}
 spec:
   hosts:
   - "*"
@@ -56,7 +61,7 @@ spec:
       - "*"
     route:
     - destination:
-        host: istiod.istio-system.svc.cluster.local
+        host: istiod-${ISTIO_REVISION}.${ISTIO_NAMESPACE}.svc.cluster.local
         port:
           number: ${DEFAULT_PORT_TLS_ISTIOD}
   - match:
@@ -65,16 +70,15 @@ spec:
       - "*"
     route:
     - destination:
-        host: istiod.istio-system.svc.cluster.local
+        host: istiod-${ISTIO_REVISION}.${ISTIO_NAMESPACE}.svc.cluster.local
         port:
           number: 443
-EOP
-
-kubectl apply -n istio-system -f - <<EOP
+---
 apiVersion: networking.istio.io/v1alpha3
 kind: Gateway
 metadata:
   name: cross-network-gateway
+  namespace: ${ISTIO_NAMESPACE}
 spec:
   selector:
     istio: eastwestgateway
@@ -89,4 +93,4 @@ spec:
         - "*.local"
 EOP
 
-kubectl label namespace istio-system topology.istio.io/network="${CLUSTER_NETWORK}"
+kubectl label namespace "${ISTIO_NAMESPACE}" topology.istio.io/network="${CLUSTER_NETWORK}"

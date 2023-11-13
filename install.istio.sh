@@ -11,14 +11,24 @@ kind: IstioOperator
 metadata:
   name: istio
 spec:
+  namespace: ${ISTIO_NAMESPACE}
+  revision: ${ISTIO_REVISION}
+  tag: ${ISTIO_VERSION}
   values:
     global:
-      meshID: mesh1
+      istioNamespace: ${ISTIO_NAMESPACE}
+      meshID: ${ISTIO_MESH_ID}
       multiCluster:
         clusterName: "${ISTIO_CLUSTER}"
       network: "${CLUSTER_NETWORK}"
+  components:
+    pilot:
+      k8s:
+        env:
+        - name: PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION
+          value: "true"
+        - name: PILOT_ENABLE_WORKLOAD_ENTRY_HEALTHCHECKS
+          value: "true"
 EOP
 
-istioctl install -y -f "${TEMP_DIR}/vm-cluster.yaml" \
-  --set values.pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION=true \
-  --set values.pilot.env.PILOT_ENABLE_WORKLOAD_ENTRY_HEALTHCHECKS=true
+istioctl install -y -f "${TEMP_DIR}/vm-cluster.yaml"

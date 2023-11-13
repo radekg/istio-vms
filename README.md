@@ -91,10 +91,11 @@ k3s-worker-2   Ready    <none>                 9m18s   v1.27.7+k3s1
 
 ## install istioctl
 
+- `ISTIO_VERSION`: Istio version, default `1.19.3`
 - `ISTIO_ARCH`: one of `< osx-arm64`, `osx-amd64`, `linux-armv7`, `linux-arm64`, `linux-amd64 >`
 
 ```sh
-./install.istioctl.sh && which istioctl
+./install.istioctl.sh
 ```
 
 Verify:
@@ -119,12 +120,21 @@ Install Istio:
 Verify:
 
 ```sh
-kubectl get services -n istio-system
+kubectl get services -n "${ISTIO_NAMESPACE}"
 ```
 
 ```
-NAME     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                                 AGE
-istiod   ClusterIP   10.43.255.139   <none>        15010/TCP,15012/TCP,443/TCP,15014/TCP   39s
+NAME            TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                                 AGE
+istiod-1-19-3   ClusterIP   10.43.255.139   <none>        15010/TCP,15012/TCP,443/TCP,15014/TCP   39s
+```
+
+```sh
+istioctl tag list
+```
+
+```
+TAG     REVISION NAMESPACES
+default 1-19-3
 ```
 
 ## install _eastwest_ gateway
@@ -158,10 +168,40 @@ cat .data/workload-files/hosts
 output similar to:
 
 ```
-192.168.64.60 istiod.istio-system.svc
+192.168.64.60 istiod-1-19-3.istio-system.svc
 ```
 
-If there are no hosts here, your _eastwest_ gateway is most likely not working correctly. Do you have the default Istio ingress running? [I discussed this earlier in this article](#preparing-istio-installation).
+If there are no hosts here, your _eastwest_ gateway is most likely not working correctly.
+
+### workload group ca_addr
+
+The _CA\_ADDR_ environment variable exported in the _cluster.env_ file points by default to the Istio TLS port, the _15012_.
+
+```sh
+./install.workload.sh --no-fix-ca
+cat .data/workload-files/cluster.env | grep CA_ADDR
+```
+
+```
+CA_ADDR='istiod-1-19-3.istio-system.svc:15012'
+```
+
+The service name is correct but the port isn't. I hoped that the tool would pick up the port from the ingress gateway service but the help for _istioctl x workload entry configure_ says:
+
+```
+      --ingressService string   Name of the Service to be used as the ingress gateway, in the format <service>.<namespace>. If no namespace is provided, the default istio-system namespace will be used. (default "istio-eastwestgateway")
+```
+
+Since that's our gateway name, it obviously doesn't detect ports. By default _install.workload.sh_ program fixes that by simply appending a fixed _CA\_ADDR_ value to the end of the _cluster.env_.
+
+```sh
+cat .data/workload-files/cluster.env | grep CA_ADDR
+```
+
+```
+CA_ADDR='istiod-1-19-3.istio-system.svc:15012'
+CA_ADDR=istiod-'1-19-3.istio-system.svc:15013'
+```
 
 ## the vm: caveat on `arm64`
 
@@ -262,11 +302,17 @@ Get the shell on the VM:
 multipass exec vm-istio-external-workload -- bash
 ```
 
-On the VM `ubuntu@vm-istio-etxernal-workload:~$`:
+On the VM `ubuntu@vm-istio-external-workload:~$`, regardless of the fact that we set the _CA\_ADDR_, we still have to use the correct value for the _PILOT\_ADDRESS_.
 
 ```sh
-cd /
-sudo ISTIO_PILOT_PORT=15013 istio-start.sh
+cd / && sudo PILOT_ADDRESS=istiod-1-19-3.istio-system.svc:15013 istio-start.sh
+# cd / && sudo PILOT_ADDRESS=istiod-${ISTIO_REVISION}.${ISTIO_NAMESPACE}.svc:${EWG_PORT_TLS_ISTIOD} istio-start.sh
+```
+
+However, this is also already dealt with in _install.workload.sh_. We can start the program with:
+
+```sh
+cd / && sudo istio-start.sh
 ```
 
 ```
@@ -281,8 +327,8 @@ sudo ISTIO_PILOT_PORT=15013 istio-start.sh
 2023-11-01T01:27:04.004885Z	info	cache	returned workload certificate from cache	ttl=23h59m58.995116686s
 2023-11-01T01:27:04.004954Z	info	cache	returned workload trust anchor from cache	ttl=23h59m58.995045987s
 2023-11-01T01:27:04.005150Z	info	cache	returned workload trust anchor from cache	ttl=23h59m58.994850182s
-2023-11-01T01:27:04.006124Z	info	ads	SDS: PUSH request for node:vm-istio-etxernal-workload.vmns resources:1 size:4.0kB resource:default
-2023-11-01T01:27:04.006176Z	info	ads	SDS: PUSH request for node:vm-istio-etxernal-workload.vmns resources:1 size:1.1kB resource:ROOTCA
+2023-11-01T01:27:04.006124Z	info	ads	SDS: PUSH request for node:vm-istio-external-workload.vmns resources:1 size:4.0kB resource:default
+2023-11-01T01:27:04.006176Z	info	ads	SDS: PUSH request for node:vm-istio-external-workload.vmns resources:1 size:1.1kB resource:ROOTCA
 2023-11-01T01:27:04.006204Z	info	cache	returned workload trust anchor from cache	ttl=23h59m58.99379629s
 ```
 
@@ -295,7 +341,7 @@ COMMIT
 (hangs here)
 ```
 
-`CTRL+C`, rerun `./install.workload.sh` and `./install.vm.bootstrap.sh`, then start `istio-start.sh` on the VM once again.
+`CTRL+C`, exec to the VM, and rerun last command again.
 
 #### validate DNS resolution
 
@@ -305,14 +351,15 @@ Open another terminal:
 multipass exec vm-istio-external-workload -- bash
 ```
 
-On the VM `ubuntu@vm-istio-etxernal-workload:~$`:
+On the VM `ubuntu@vm-istio-external-workload:~$`:
 
 ```sh
-dig istiod.istio-system.svc
+dig istiod-1-19-3.istio-system.svc
+# dig istiod-${ISTIO_REVISION}.${ISTIO_NAMESPACE}.svc
 ```
 
 ```
-; <<>> DiG 9.18.12-0ubuntu0.22.04.3-Ubuntu <<>> istiod.istio-system.svc
+; <<>> DiG 9.18.12-0ubuntu0.22.04.3-Ubuntu <<>> istiod-1-19-3.istio-system.svc
 ;; global options: +cmd
 ;; Got answer:
 ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 27953
@@ -320,10 +367,10 @@ dig istiod.istio-system.svc
 ;; WARNING: recursion requested but not available
 
 ;; QUESTION SECTION:
-;istiod.istio-system.svc.	IN	A
+;istiod-1-19-3.istio-system.svc.	IN	A
 
 ;; ANSWER SECTION:
-istiod.istio-system.svc. 30	IN	A	10.43.26.124
+istiod-1-19-3.istio-system.svc. 30	IN	A	10.43.26.124
 
 ;; Query time: 0 msec
 ;; SERVER: 127.0.0.53#53(127.0.0.53) (UDP)
@@ -334,12 +381,12 @@ istiod.istio-system.svc. 30	IN	A	10.43.26.124
 The IP address should be equal to the cluster IP:
 
 ```sh
-kubectl get service istiod -n istio-system
+kubectl get service "istiod-${ISTIO_REVISION}" -n "${ISTIO_NAMESPACE}"
 ```
 
 ```
-NAME     TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                                 AGE
-istiod   ClusterIP   10.43.26.124   <none>        15010/TCP,15012/TCP,443/TCP,15014/TCP   19m
+NAME            TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                                 AGE
+istiod-1-19-3   ClusterIP   10.43.26.124   <none>        15010/TCP,15012/TCP,443/TCP,15014/TCP   19m
 ```
 
 ### validating communication
@@ -350,7 +397,7 @@ Deploy a sample application allowing us to validate the connection from the VM t
 
 ```sh
 kubectl create namespace sample
-kubectl label namespace sample istio-injection=enabled
+kubectl label namespace sample "istio.io/rev=${ISTIO_REVISION}"
 ```
 
 #### on `amd64` host
@@ -358,6 +405,7 @@ kubectl label namespace sample istio-injection=enabled
 ```sh
 kubectl apply -n sample -f https://raw.githubusercontent.com/istio/istio/release-1.19/samples/helloworld/helloworld.yaml
 ```
+
 #### on `arm64` host
 
 ```sh
@@ -386,7 +434,7 @@ helloworld-v2-9fdc9f56f-tbmk8   2/2     Running           0          22s
 
 #### checking vm to mesh connectivity
 
-In a shell on a VM `ubuntu@vm-istio-etxernal-workload`:
+In a shell on a VM `ubuntu@vm-istio-external-workload`:
 
 ```sh
 curl -v helloworld.sample.svc:5000/hello
@@ -425,7 +473,7 @@ Find the workload entry, this exists only when `pilot-agent` is running in the V
 ### workload entry is unhealthy
 
 ```sh
-kubectl get workloadentry -n vmns
+kubectl get workloadentry -n "${VM_NAMESPACE}"
 ```
 
 ```
@@ -436,7 +484,7 @@ external-app-192.168.64.64-vm-network   2m33s   192.168.64.64
 Check its status, it will be unhealthy:
 
 ```sh
-kubectl get workloadentry external-app-192.168.64.64-vm-network -n vmns -o yaml | yq '.status'
+kubectl get workloadentry external-app-192.168.64.64-vm-network -n "${VM_NAMESPACE}" -o yaml | yq '.status'
 ```
 
 ```yaml
@@ -450,7 +498,7 @@ conditions:
 
 ### fix it by starting the workload
 
-The reason why it is unhealthy is because the service on the VM isn't running. Start a simple HTTP server to fix this, on the VM `ubuntu@vm-istio-etxernal-workload`:
+The reason why it is unhealthy is because the service on the VM isn't running. Start a simple HTTP server to fix this, on the VM `ubuntu@vm-istio-external-workload`:
 
 ```sh
 python3 -m http.server
@@ -468,14 +516,14 @@ Almost immediately we see requests arriving. This is the health check. Istio sid
 
 ```
 2023-11-01T21:04:50.337302Z	info	healthcheck	failure threshold hit, marking as unhealthy: Get "http://localhost:8000/": dial tcp 127.0.0.6:0->127.0.0.1:8000: connect: connection refused
-2023-11-01T21:32:12.943221Z	info	xdsproxy	connected to upstream XDS server: istiod.istio-system.svc:15012
+2023-11-01T21:32:12.943221Z	info	xdsproxy	connected to upstream XDS server: istiod-1-19-3.istio-system.svc:15012
 2023-11-01T21:44:25.343463Z	info	healthcheck	success threshold hit, marking as healthy
 ```
 
 The status of the workload entry has changed:
 
 ```sh
-kubectl get workloadentry external-app-192.168.64.64-vm-network -n vmns -o yaml | yq '.status'
+kubectl get workloadentry external-app-192.168.64.64-vm-network -n "${VM_NAMESPACE}" -o yaml | yq '.status'
 ```
 
 ```yaml
@@ -505,6 +553,7 @@ Execute the following command in that terminal:
 
 ```sh
 curl -v http://external-app.vmns.svc:8000/
+# Use the VM_NAMESPACE from run.env
 ```
 
 ```
@@ -558,7 +607,7 @@ apiVersion: security.istio.io/v1beta1
 kind: PeerAuthentication
 metadata:
   name: default
-  namespace: istio-system
+  namespace: ${ISTIO_NAMESPACE}
 spec:
   mtls:
     mode: STRICT
@@ -573,12 +622,12 @@ Because a network policy selects pods using `.spec.podSelector`, and we have no 
 
 
 ```sh
-kubectl apply -n vmns -f - <<EOF
----
+kubectl apply -f - <<EOF
 kind: NetworkPolicy
 apiVersion: networking.k8s.io/v1
 metadata:
   name: deny-all
+  namespace: ${VM_NAMESPACE}
 spec:
   podSelector:
     matchLabels:
@@ -595,6 +644,7 @@ in that shell:
 
 ```sh
 curl -v http://external-app.vmns.svc:8000/
+# Use the VM_NAMESPACE from run.env
 ```
 
 ```
@@ -616,11 +666,10 @@ curl -v http://external-app.vmns.svc:8000/
 
 ```sh
 kubectl apply -n sample -f - <<EOF
----
 kind: NetworkPolicy
 apiVersion: networking.k8s.io/v1
 metadata:
-  name: deny-egress-tovmns
+  name: deny-egress-tovm
 spec:
   podSelector: {}
   policyTypes:
@@ -631,7 +680,7 @@ spec:
         matchExpressions:
         - key: namespace
           operator: NotIn
-          values: ["vmns"]
+          values: ["${VM_NAMESPACE}"]
 EOF
 ```
 
@@ -643,6 +692,7 @@ in that shell:
 
 ```sh
 curl http://external-app.vmns.svc:8000/
+# Use the VM_NAMESPACE from run.env
 ```
 
 ```
@@ -653,7 +703,7 @@ pod "vm-response-test" deleted
 ```
 
 ```sh
-kubectl delete networkpolicy deny-egress-tovmns -n sample
+kubectl delete networkpolicy deny-egress-tovm -n sample
 ```
 
 ```sh
@@ -664,6 +714,7 @@ in that shell:
 
 ```sh
 curl http://external-app.vmns.svc:8000/
+# Use the VM_NAMESPACE from run.env
 ```
 
 ```
