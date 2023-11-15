@@ -16,7 +16,7 @@ spec:
   tag: ${ISTIO_VERSION}
   values:
     global:
-      caAddress: cert-manager-istio-csr.cert-manager.svc:443
+      caAddress: cert-manager-istio-csr.${CERT_MANAGER_NAMESPACE}.svc:443
       istioNamespace: ${ISTIO_NAMESPACE}
       meshID: ${ISTIO_MESH_ID}
       multiCluster:

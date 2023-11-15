@@ -29,6 +29,11 @@ source "${base}/run.env"
 
 set +e; multipass launch -c "${CPU_MASTER}" -m "${MEM_MASTER}" -d "${DISK_MASTER}" -n k3s-master "${RUN_OS}"; set -e
 
+# Set the timezone, install ntp:
+multipass exec k3s-master -- sudo timedatectl set-timezone UTC
+multipass exec k3s-master -- sudo apt-get update -y
+multipass exec k3s-master -- sudo DEBIAN_FRONTEND=noninteractive apt-get install ntp -y
+
 multipass exec k3s-master -- bash -c 'curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --disable traefik" sh'
 TOKEN=$(multipass exec k3s-master sudo cat /var/lib/rancher/k3s/server/node-token)
 MASTER_IP=$(multipass info k3s-master | grep IPv4 | awk '{print $2}')
@@ -38,6 +43,9 @@ for f in 1 2; do
 done
 
 for f in 1 2; do
+  multipass exec k3s-worker-$f -- sudo timedatectl set-timezone UTC
+  multipass exec k3s-worker-$f -- sudo apt-get update -y
+  multipass exec k3s-worker-$f -- sudo DEBIAN_FRONTEND=noninteractive apt-get install ntp -y
   multipass exec k3s-worker-$f -- \
     bash -c "curl -sfL https://get.k3s.io | K3S_URL=\"https://${MASTER_IP}:6443\" K3S_TOKEN=\"${TOKEN}\" sh -"
 done

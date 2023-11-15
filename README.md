@@ -26,6 +26,7 @@ Besides the standard `kubectl`:
 - `yq`: follow [an official guide](https://github.com/mikefarah/yq#install),
 - `docker` or `podman` if you are on an _arm64-based_ host,
 - `istioctl`: instructions [further in the article](#install-istioctl).
+- `helm`: [follow instructions](https://helm.sh/docs/intro/install/), for Istio CSR installation.
 
 ## working directory
 

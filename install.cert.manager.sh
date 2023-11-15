@@ -4,20 +4,18 @@ set -eu
 base="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "${base}/run.env"
 
-CERT_MANAGER_VERSION=${CERT_MANAGER_VERSION:-v1.13.2}
-
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.crds.yaml
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml
 
-kubectl wait --for condition=available -n cert-manager --timeout=${TIMEOUT_DEPLOYMENT_WAIT} deployment/cert-manager-cainjector
-kubectl wait --for condition=available -n cert-manager --timeout=${TIMEOUT_DEPLOYMENT_WAIT} deployment/cert-manager
-kubectl wait --for condition=available -n cert-manager --timeout=${TIMEOUT_DEPLOYMENT_WAIT} deployment/cert-manager-webhook
+kubectl wait --for condition=available -n "${CERT_MANAGER_NAMESPACE}" --timeout=${TIMEOUT_DEPLOYMENT_WAIT} deployment/cert-manager-cainjector
+kubectl wait --for condition=available -n "${CERT_MANAGER_NAMESPACE}" --timeout=${TIMEOUT_DEPLOYMENT_WAIT} deployment/cert-manager
+kubectl wait --for condition=available -n "${CERT_MANAGER_NAMESPACE}" --timeout=${TIMEOUT_DEPLOYMENT_WAIT} deployment/cert-manager-webhook
 
 # The namespace needs to exist because we need to place secrets in it.
 set +e; kubectl create namespace "${ISTIO_NAMESPACE}"; set -e
-kubectl wait --for jsonpath='{.status.phase}=Active' --timeout=5s "namespace/${ISTIO_NAMESPACE}"
+kubectl wait --for jsonpath='{.status.phase}=Active' --timeout="${TIMEOUT_NAMESPACE_ACTIVE_WAIT}" "namespace/${ISTIO_NAMESPACE}"
 
-# Create a sel-signed root certificate, generate the istio root CA out of it,
+# Create a self-signed root certificate, generate the istio root CA out of it,
 # prepare the issuer for Istio. This new Issuer needs a secret that we create
 # in the next step. We do it like this as we follow instructions from cert-manager
 # documentation: https://cert-manager.io/docs/tutorials/istio-csr/istio-csr/#export-the-root-ca-to-a-local-file.
@@ -53,7 +51,7 @@ spec:
   subject:
     organizations:
     - cluster.local
-    - cert-manager
+    - ${CERT_MANAGER_NAMESPACE}
   issuerRef:
     name: selfsigned
     kind: Issuer
@@ -73,15 +71,16 @@ EOF
 # Here we create the secret used by the istio-ca Issuer.
 wait-for-k8s-secret istio-ca "${ISTIO_NAMESPACE}"
 kubectl get -n "${ISTIO_NAMESPACE}" secret istio-ca -ogo-template='{{index .data "tls.crt"}}' | base64 -d > "${TEMP_DIR}/ca.pem"
-kubectl delete secret -n cert-manager istio-root-ca
-kubectl create secret generic -n cert-manager istio-root-ca --from-file="ca.pem=${TEMP_DIR}/ca.pem"
+kubectl delete secret -n "${CERT_MANAGER_NAMESPACE}" istio-root-ca --ignore-not-found=true
+kubectl create secret generic -n "${CERT_MANAGER_NAMESPACE}" istio-root-ca --from-file="ca.pem=${TEMP_DIR}/ca.pem"
 
 # Because we use revisioned Istio installation, we require a TLS certifiate for every Istiod we run.
-kubectl apply -n "${ISTIO_NAMESPACE}" -f -<<EOF
+kubectl apply -f -<<EOF
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: istiod-${ISTIO_REVISION}
+  namespace: ${ISTIO_NAMESPACE}
 spec:
   commonName: istiod-${ISTIO_REVISION}.${ISTIO_NAMESPACE}.svc
   dnsNames:
@@ -99,7 +98,6 @@ spec:
   secretName: istiod-tls-${ISTIO_REVISION}
   uris:
   - spiffe://cluster.local/ns/${ISTIO_NAMESPACE}/istiod-${ISTIO_REVISION}
-
 EOF
 
 # Install istio-csr:
@@ -114,7 +112,7 @@ helm repo update
 # Which makes sense because istio-csr tries contacting the Kubernetes clusterID
 # but Istio wasnts ISTIO_CLUSTER value, which in the case of an error above, was test.
 set +e
-helm install -n cert-manager cert-manager-istio-csr jetstack/cert-manager-istio-csr \
+helm install -n "${CERT_MANAGER_NAMESPACE}" cert-manager-istio-csr jetstack/cert-manager-istio-csr \
 	--set "app.tls.trustDomain=cluster.local" \
   --set "app.tls.rootCAFile=/var/run/secrets/istio-csr/ca.pem" \
   --set "app.istio.revisions[0]=default" \
@@ -127,4 +125,56 @@ helm install -n cert-manager cert-manager-istio-csr jetstack/cert-manager-istio-
 	--set "volumes[0].secret.secretName=istio-root-ca"
 set -e
 
-kubectl wait --for condition=available -n cert-manager --timeout=${TIMEOUT_DEPLOYMENT_WAIT} deployment/cert-manager-istio-csr
+kubectl wait --for condition=available -n "${CERT_MANAGER_NAMESPACE}" --timeout=${TIMEOUT_DEPLOYMENT_WAIT} deployment/cert-manager-istio-csr
+
+# Expose istio-csr via the default ingress gateway.
+# TODO: come back to this later, this needs its own ingress so that it can be protected.
+#       For now, it's good enough. Just keep in mind: istio-csr in the open.
+
+# How does this work:
+# The gateway accepts anything on HTTPS where the hostname is istio-csr's internal hostname.
+# Since this is on the ingress, Istio happily takes it because this request did not originate
+# from inside of the cluster, and sends it to exactly the same address but in the cluster.
+# Now, the reason why this is necessary: the Istio sidecar validates the hostname using the TLS
+# certificate. Since istio-csr serves under cert-manager-istio-csr.${CERT_MANAGER_NAMESPACE}.svc,
+# any request routed to it from the ingress gateway, needs to be done via exactly the same hostname.
+
+kubectl apply -f - <<EOF
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: cert-manager-istio-csr-gtw
+  namespace: cert-manager
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: PASSTHROUGH
+    hosts:
+    - cert-manager-istio-csr.cert-manager.svc
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: cert-manager-istio-csr-vs
+  namespace: cert-manager
+spec:
+  hosts:
+  - cert-manager-istio-csr.cert-manager.svc
+  gateways:
+  - cert-manager-istio-csr-gtw
+  tls:
+  - match:
+    - port: 443
+      sniHosts:
+      - cert-manager-istio-csr.cert-manager.svc
+    route:
+    - destination:
+        host: cert-manager-istio-csr.cert-manager.svc.cluster.local
+EOF
