@@ -18,11 +18,6 @@ else
   echo >&2 "Deploying without arm64 binaries."
 fi
 
-# Set the timezone, install ntp:
-multipass exec "${WORKLOAD_VM_NAME}" -- sudo timedatectl set-timezone UTC
-multipass exec "${WORKLOAD_VM_NAME}" -- sudo apt-get update -y
-multipass exec "${WORKLOAD_VM_NAME}" -- sudo DEBIAN_FRONTEND=noninteractive apt-get install ntp -y
-
 # istio-sidecar.deb:
 multipass transfer --parents "${DATA_DIR}/istio-sidecar/usr/local/bin/istio-start.sh" "${WORKLOAD_VM_NAME}":./usr/local/bin/istio-start.sh
 multipass transfer --parents "${DATA_DIR}/istio-sidecar/lib/systemd/system/istio.service" "${WORKLOAD_VM_NAME}":./lib/systemd/system/istio.service 

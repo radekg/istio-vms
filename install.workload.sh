@@ -90,7 +90,7 @@ EOP
 rm -rfv "${base}/.data/workload-files/hosts.back"
 
 if [ "${no_fix_ca}" == "false" ]; then
-  echo "CA_ADDR='cert-manager-istio-csr.${CERT_MANAGER_NAMESPACE}.svc:443'" >> "${DATA_DIR}/workload-files/cluster.env"
+  echo "CA_ADDR='cert-manager-istio-csr.${CERT_MANAGER_NAMESPACE}.svc:${ISTIO_CSR_INGRESS_PORT_TLS}'" >> "${DATA_DIR}/workload-files/cluster.env"
 fi
 
 if [ "${no_fix_pilot}" == "false" ]; then

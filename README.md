@@ -785,6 +785,24 @@ Current situation:
 
 The natural network boundary is the namespace and explicit deny of egress to the namespace with the VM.
 
-## Summary
+## troubleshooting
+
+### enable access logs in sidecars and ingress pods
+
+```sh
+kubectl apply -f - <<EOF
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: mesh-default
+  namespace: istio-system
+spec:
+  accessLogging:
+    - providers:
+      - name: envoy
+EOF
+```
+
+## summary
 
 Success, a pod in the mesh can communicate to the VM via the service, VM is in the mesh and can communicate back to the mesh. Istio VM workloads are easy way to automate VM-mesh onboarding.
