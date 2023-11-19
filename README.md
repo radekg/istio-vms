@@ -803,6 +803,29 @@ spec:
 EOF
 ```
 
+### the vm stops fetching certificates
+
+The VM after a while starts logging messages similar to:
+
+```
+2023-11-16T13:40:47.906932Z	warning	envoy config external/envoy/source/extensions/config_subscription/grpc/grpc_stream.h:152	StreamSecrets gRPC config stream to sds-grpc closed: 2, failed to generate secret for default: failed to generate workload certificate: create certificate: rpc error: code = Unauthenticated desc = request authenticate failure	thread=3631
+```
+
+while the ingress gateway logs:
+
+```
+2023-11-16T12:40:47.364949Z	error	klog	grpc-server "msg"="failed to authenticate request" "error"="failed to validate the JWT from cluster \"test\": the service account authentication returns an error: [invalid bearer token, service account token has expired]" "serving-addr"="0.0.0.0:16443"
+```
+
+This happens because the `istio-token` expires. Execute to refresh the token:
+
+```sh
+./install.workload.sh
+./install.vm.bootstrap.sh
+```
+
+The VM sidecar will pick the new token up from an updated file.
+
 ## summary
 
 Success, a pod in the mesh can communicate to the VM via the service, VM is in the mesh and can communicate back to the mesh. Istio VM workloads are easy way to automate VM-mesh onboarding.
