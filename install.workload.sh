@@ -76,7 +76,7 @@ cat > ${base}/.data/workload-files/hosts <<EOP
 127.0.0.1 localhost
 
 # We need this so that we can reach the cert manager service through the load balancer.
-# Our istio-csr is for now routable via the default ingress...
+# Our istio-csr is routable via the dedicated ingress.
 # TODO: investigate how to protect this resource.
 ${MASTER_IP} cert-manager-istio-csr.${CERT_MANAGER_NAMESPACE}.svc
 

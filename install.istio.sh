@@ -18,6 +18,7 @@ spec:
     global:
       caAddress: cert-manager-istio-csr.${CERT_MANAGER_NAMESPACE}.svc:443
       istioNamespace: ${ISTIO_NAMESPACE}
+      jwtPolicy: third-party-jwt
       meshID: ${ISTIO_MESH_ID}
       multiCluster:
         clusterName: "${ISTIO_CLUSTER}"
