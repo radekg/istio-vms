@@ -26,6 +26,7 @@ Besides the standard `kubectl`:
 - `yq`: follow [an official guide](https://github.com/mikefarah/yq#install),
 - `docker` or `podman` if you are on an _arm64-based_ host,
 - `istioctl`: instructions [further in the article](#install-istioctl).
+- `helm`: [follow instructions](https://helm.sh/docs/intro/install/), for Istio CSR installation.
 
 ## working directory
 
@@ -139,7 +140,7 @@ istiod-1-19-3   ClusterIP   10.43.255.139   <none>        15010/TCP,15012/TCP,44
 ```
 
 ```sh
-istioctl tag list
+istioctl tag list --istioNamespace="${ISTIO_NAMESPACE}"
 ```
 
 ```
@@ -157,18 +158,24 @@ This program installs the _eastwest_ gateway. This program depends on _DEFAULT\_
 
 The outcome should be similar to this:
 
+```sh
+kubectl get services -n "${ISTIO_NAMESPACE}" -w
 ```
-kubectl get services -n istio-system -w
+
+```
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP                                 PORT(S)                                                           AGE
 istiod                  ClusterIP      10.43.255.139   <none>                                      15010/TCP,15012/TCP,443/TCP,15014/TCP                             17m
 istio-ingressgateway    LoadBalancer   10.43.217.75    192.168.64.60,192.168.64.61,192.168.64.62   15021:31941/TCP,80:30729/TCP,443:32187/TCP                        11m
 istio-eastwestgateway   LoadBalancer   10.43.106.169   192.168.64.60,192.168.64.61,192.168.64.62   15022:31036/TCP,15443:32297/TCP,15013:31263/TCP,15018:32660/TCP   15s
 ```
 
-If your _eastwest_ gateway remains in the _pending_ state, makes sure that a _DEFAULT\_PORT_ is not equal to the corresponding _EWG\_PORT_.
+If your _eastwest_ gateway remains in the _pending_ state, ensure that a _DEFAULT\_PORT_ is not equal to the corresponding _EWG\_PORT_.
+
+```sh
+kubectl get services -n "${ISTIO_NAMESPACE}" -w
+```
 
 ```
-kubectl get services -n istio-system -w
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP                                 PORT(S)                                                           AGE
 istiod                  ClusterIP      10.43.255.139   <none>                                      15010/TCP,15012/TCP,443/TCP,15014/TCP                             17m
 istio-ingressgateway    LoadBalancer   10.43.217.75    192.168.64.60,192.168.64.61,192.168.64.62   15021:31941/TCP,80:30729/TCP,443:32187/TCP                        11m
@@ -778,6 +785,47 @@ Current situation:
 
 The natural network boundary is the namespace and explicit deny of egress to the namespace with the VM.
 
-## Summary
+## troubleshooting
+
+### enable access logs in sidecars and ingress pods
+
+```sh
+kubectl apply -f - <<EOF
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: mesh-default
+  namespace: istio-system
+spec:
+  accessLogging:
+    - providers:
+      - name: envoy
+EOF
+```
+
+### the vm stops fetching certificates
+
+The VM after a while starts logging messages similar to:
+
+```
+2023-11-16T13:40:47.906932Z	warning	envoy config external/envoy/source/extensions/config_subscription/grpc/grpc_stream.h:152	StreamSecrets gRPC config stream to sds-grpc closed: 2, failed to generate secret for default: failed to generate workload certificate: create certificate: rpc error: code = Unauthenticated desc = request authenticate failure	thread=3631
+```
+
+while the ingress gateway logs:
+
+```
+2023-11-16T12:40:47.364949Z	error	klog	grpc-server "msg"="failed to authenticate request" "error"="failed to validate the JWT from cluster \"test\": the service account authentication returns an error: [invalid bearer token, service account token has expired]" "serving-addr"="0.0.0.0:16443"
+```
+
+This happens because the `istio-token` expires. Execute to refresh the token:
+
+```sh
+./install.workload.sh
+./install.vm.bootstrap.sh
+```
+
+The VM sidecar will pick the new token up from an updated file.
+
+## summary
 
 Success, a pod in the mesh can communicate to the VM via the service, VM is in the mesh and can communicate back to the mesh. Istio VM workloads are easy way to automate VM-mesh onboarding.

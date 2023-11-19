@@ -49,26 +49,9 @@ multipass transfer --parents "${base}/.data/workload-files/cluster.env" "${WORKL
 multipass transfer --parents "${base}/.data/workload-files/istio-token" "${WORKLOAD_VM_NAME}":./workload/istio-token
 multipass transfer --parents "${base}/.data/workload-files/mesh.yaml" "${WORKLOAD_VM_NAME}":./workload/mesh
 
-cat > ${base}/.data/workload-files/all-hosts <<EOP
-# Your system has configured 'manage_etc_hosts' as True.
-# As a result, if you wish for changes to this file to persist
-# then you will need to either
-# a.) make changes to the master file in /etc/cloud/templates/hosts.debian.tmpl
-# b.) change or remove the value of 'manage_etc_hosts' in
-#     /etc/cloud/cloud.cfg or cloud-config from user-data
-#
-127.0.1.1 ${WORKLOAD_VM_NAME} ${WORKLOAD_VM_NAME}
-127.0.0.1 localhost
 
-# The following lines are desirable for IPv6 capable hosts
-::1 localhost ip6-localhost ip6-loopback
-ff02::1 ip6-allnodes
-ff02::2 ip6-allrouters
 
-$(cat ${base}/.data/workload-files/hosts)
-EOP
-
-multipass transfer --parents "${base}/.data/workload-files/all-hosts" "${WORKLOAD_VM_NAME}":./workload/hosts
+multipass transfer --parents "${base}/.data/workload-files/hosts" "${WORKLOAD_VM_NAME}":./workload/hosts
 multipass exec "${WORKLOAD_VM_NAME}" -- sudo bash -c 'mv -v workload/hosts /etc/hosts'
 multipass exec "${WORKLOAD_VM_NAME}" -- sudo bash -c 'mv -v workload/root-cert.pem /etc/certs/root-cert.pem'
 multipass exec "${WORKLOAD_VM_NAME}" -- sudo bash -c 'mv -v workload/cluster.env /var/lib/istio/envoy/cluster.env'
