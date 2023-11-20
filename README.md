@@ -15,7 +15,7 @@ After setting up the _k3s_ cluster, I follow the steps from Istio documentation:
 
 ## how to use this document
 
-Either follow for the hard way, or consult `./bin/reference.sh` for a more condensed walk-through.
+Whenever there's an Istio revision or version displayed next to a timestamp, the timestamp may not be factually correct. This document is updated manually as the repository develops but not every command output is factually correct.
 
 ## tools
 
@@ -94,7 +94,7 @@ k3s-worker-2   Ready    <none>                 9m18s   v1.27.7+k3s1
 
 This program downloads _istioctl_ for _ISTIO\_VERSION_ and _ISTIO\_ARCH_, and places it in the _.bin/_ directory.
 
-- `ISTIO_VERSION`: Istio version, default `1.19.3`
+- `ISTIO_VERSION`: Istio version, default `1.20.0`
 - `ISTIO_ARCH`: one of `< osx-arm64`, `osx-amd64`, `linux-armv7`, `linux-arm64`, `linux-amd64 >`, default `osx-arm64`
 
 ```sh
@@ -109,7 +109,7 @@ istioctl version
 
 ```
 no ready Istio pods in "istio-system"
-1.19.3
+1.20.0
 ```
 
 ```sh
@@ -136,7 +136,7 @@ kubectl get services -n "${ISTIO_NAMESPACE}"
 
 ```
 NAME            TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                                 AGE
-istiod-1-19-3   ClusterIP   10.43.255.139   <none>        15010/TCP,15012/TCP,443/TCP,15014/TCP   39s
+istiod-1-20-0   ClusterIP   10.43.255.139   <none>        15010/TCP,15012/TCP,443/TCP,15014/TCP   39s
 ```
 
 ```sh
@@ -145,7 +145,7 @@ istioctl tag list --istioNamespace="${ISTIO_NAMESPACE}"
 
 ```
 TAG     REVISION NAMESPACES
-default 1-19-3
+default 1-20-0
 ```
 
 ## _eastwest_ gateway
@@ -211,7 +211,7 @@ cat .data/workload-files/hosts
 output similar to:
 
 ```
-192.168.64.60 istiod-1-19-3.istio-system.svc
+192.168.64.60 istiod-1-20-0.istio-system.svc
 ```
 
 If there are no hosts here, your _eastwest_ gateway is most likely not working correctly.
@@ -226,7 +226,7 @@ cat .data/workload-files/cluster.env | grep CA_ADDR
 ```
 
 ```
-CA_ADDR='istiod-1-19-3.istio-system.svc:15012'
+CA_ADDR='istiod-1-20-0.istio-system.svc:15012'
 ```
 
 The service name is correct but the port isn't. I hoped that the tool would pick up the port from the ingress gateway service but the help for _istioctl x workload entry configure_ says:
@@ -242,8 +242,8 @@ cat .data/workload-files/cluster.env | grep CA_ADDR
 ```
 
 ```
-CA_ADDR='istiod-1-19-3.istio-system.svc:15012'
-CA_ADDR=istiod-'1-19-3.istio-system.svc:15013'
+CA_ADDR='istiod-1-20-0.istio-system.svc:15012'
+CA_ADDR=istiod-'1-20-0.istio-system.svc:15013'
 ```
 
 ## the vm: caveat on `arm64`
@@ -336,7 +336,7 @@ multipass exec vm-istio-external-workload -- bash
 On the VM `ubuntu@vm-istio-external-workload:~$`, regardless of the fact that we set the _CA\_ADDR_, we still have to use the correct value for the _PILOT\_ADDRESS_.
 
 ```sh
-cd / && sudo PILOT_ADDRESS=istiod-1-19-3.istio-system.svc:15013 istio-start.sh
+cd / && sudo PILOT_ADDRESS=istiod-1-20-0.istio-system.svc:15013 istio-start.sh
 # cd / && sudo PILOT_ADDRESS=istiod-${ISTIO_REVISION}.${ISTIO_NAMESPACE}.svc:${EWG_PORT_TLS_ISTIOD} istio-start.sh
 ```
 
@@ -385,12 +385,12 @@ multipass exec vm-istio-external-workload -- bash
 On the VM `ubuntu@vm-istio-external-workload:~$`:
 
 ```sh
-dig istiod-1-19-3.istio-system.svc
+dig istiod-1-20-0.istio-system.svc
 # dig istiod-${ISTIO_REVISION}.${ISTIO_NAMESPACE}.svc
 ```
 
 ```
-; <<>> DiG 9.18.12-0ubuntu0.22.04.3-Ubuntu <<>> istiod-1-19-3.istio-system.svc
+; <<>> DiG 9.18.12-0ubuntu0.22.04.3-Ubuntu <<>> istiod-1-20-0.istio-system.svc
 ;; global options: +cmd
 ;; Got answer:
 ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 27953
@@ -398,10 +398,10 @@ dig istiod-1-19-3.istio-system.svc
 ;; WARNING: recursion requested but not available
 
 ;; QUESTION SECTION:
-;istiod-1-19-3.istio-system.svc.	IN	A
+;istiod-1-20-0.istio-system.svc.	IN	A
 
 ;; ANSWER SECTION:
-istiod-1-19-3.istio-system.svc. 30	IN	A	10.43.26.124
+istiod-1-20-0.istio-system.svc. 30	IN	A	10.43.26.124
 
 ;; Query time: 0 msec
 ;; SERVER: 127.0.0.53#53(127.0.0.53) (UDP)
@@ -417,7 +417,7 @@ kubectl get service "istiod-${ISTIO_REVISION}" -n "${ISTIO_NAMESPACE}"
 
 ```
 NAME            TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                                 AGE
-istiod-1-19-3   ClusterIP   10.43.26.124   <none>        15010/TCP,15012/TCP,443/TCP,15014/TCP   19m
+istiod-1-20-0   ClusterIP   10.43.26.124   <none>        15010/TCP,15012/TCP,443/TCP,15014/TCP   19m
 ```
 
 ### validating communication
@@ -547,7 +547,7 @@ Almost immediately we see requests arriving. This is the health check. Istio sid
 
 ```
 2023-11-01T21:04:50.337302Z	info	healthcheck	failure threshold hit, marking as unhealthy: Get "http://localhost:8000/": dial tcp 127.0.0.6:0->127.0.0.1:8000: connect: connection refused
-2023-11-01T21:32:12.943221Z	info	xdsproxy	connected to upstream XDS server: istiod-1-19-3.istio-system.svc:15012
+2023-11-01T21:32:12.943221Z	info	xdsproxy	connected to upstream XDS server: istiod-1-20-0.istio-system.svc:15012
 2023-11-01T21:44:25.343463Z	info	healthcheck	success threshold hit, marking as healthy
 ```
 
