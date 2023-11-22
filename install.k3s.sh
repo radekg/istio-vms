@@ -47,3 +47,17 @@ multipass exec k3s-master sudo cat /etc/rancher/k3s/k3s.yaml > "${KUBECONFIG}"
 # Update the IP address to the one mapped by multipass
 sed -i '' "s/127.0.0.1/${MASTER_IP}/" "${KUBECONFIG}"
 chmod 600 "${KUBECONFIG}"
+
+# Install Gateway API CRSs:
+# -------------------------
+# These do not come installed by default but when enabled, Istio will configure itself with
+# two GatewayClass resources:
+# 
+# $ kubectl get gatewayclass -A
+# NAME           CONTROLLER                    ACCEPTED   AGE
+# istio-remote   istio.io/unmanaged-gateway    True       44s
+# istio          istio.io/gateway-controller   True       44s
+# 
+# Experimental because we need TLSRoute, TCPRoute.
+# Reference: https://gateway-api.sigs.k8s.io/guides/#install-experimental-channel.
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/experimental-install.yaml
