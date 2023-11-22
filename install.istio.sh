@@ -26,7 +26,7 @@ spec:
   components:
     ingressGateways:
     - name: istio-ingressgateway
-      enabled: true
+      enabled: false
     - name: istio-csr-ingressgateway
       enabled: true
       k8s:

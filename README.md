@@ -434,13 +434,13 @@ kubectl label namespace sample "istio.io/rev=${ISTIO_REVISION}"
 #### on `amd64` host
 
 ```sh
-kubectl apply -n sample -f https://raw.githubusercontent.com/istio/istio/release-1.19/samples/helloworld/helloworld.yaml
+kubectl apply -n sample -f https://raw.githubusercontent.com/istio/istio/release-1.20/samples/helloworld/helloworld.yaml
 ```
 
 #### on `arm64` host
 
 ```sh
-curl --silent https://raw.githubusercontent.com/istio/istio/release-1.19/samples/helloworld/helloworld.yaml \
+curl --silent https://raw.githubusercontent.com/istio/istio/release-1.20/samples/helloworld/helloworld.yaml \
   | sed -E 's!istio/examples!radekg/examples!g' \
   | kubectl apply -n sample -f -
 ```
